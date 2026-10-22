@@ -3,33 +3,53 @@ from main import app
 
 client = TestClient(app)
 
-def test_user_document_isolation():
-    # 1. Register User A and User B
-    client.post("/api/register", json={"username": "usera", "password": "password123", "role": "viewer"})
-    client.post("/api/register", json={"username": "userb", "password": "password123", "role": "viewer"})
 
-    # 2. Login as User A to get token
-    res_a = client.post("/api/login", data={"username": "usera", "password": "password123"})
+def test_user_document_isolation():
+    # Use unique usernames so repeated local test runs don't collide with old records.
+    import uuid
+    suffix = uuid.uuid4().hex[:8]
+    username_a = f"owner_{suffix}"
+    username_b = f"viewer_{suffix}"
+    password = "password123"
+
+    reg_a = client.post(
+        "/api/register",
+        json={"username": username_a, "password": password, "role": "owner"},
+    )
+    assert reg_a.status_code == 200, reg_a.text
+
+    reg_b = client.post(
+        "/api/register",
+        json={"username": username_b, "password": password, "role": "viewer"},
+    )
+    assert reg_b.status_code == 200, reg_b.text
+
+    res_a = client.post(
+        "/api/login",
+        data={"username": username_a, "password": password},
+    )
+    assert res_a.status_code == 200, res_a.text
     token_a = res_a.json()["access_token"]
 
-    # 3. Login as User B to get token
-    res_b = client.post("/api/login", data={"username": "userb", "password": "password123"})
+    res_b = client.post(
+        "/api/login",
+        data={"username": username_b, "password": password},
+    )
+    assert res_b.status_code == 200, res_b.text
     token_b = res_b.json()["access_token"]
 
-    # 4. User A uploads a confidential document
-    file_data = {"file": ("confidential.txt", b"Top secret data belonging to User A")}
     upload_res = client.post(
         "/api/upload",
         data={"title": "User A Secret", "category": "Confidential"},
-        files=file_data,
-        headers={"Authorization": f"Bearer {token_a}"}
+        files={"file": ("confidential.txt", b"Top secret data belonging to User A", "text/plain")},
+        headers={"Authorization": f"Bearer {token_a}"},
     )
-    assert upload_res.status_code == 200
+    assert upload_res.status_code == 200, upload_res.text
+    document_id = upload_res.json()["document_id"]
 
-    # 5. User B attempts to download User A's file -> Should be blocked with 403 Forbidden
     download_res = client.get(
-        "/api/download/confidential.txt",
-        headers={"Authorization": f"Bearer {token_b}"}
+        f"/api/documents/{document_id}/download",
+        headers={"Authorization": f"Bearer {token_b}"},
     )
-    assert download_res.status_code == 403
-    assert download_res.json()["detail"] == "Access denied. You do not have permission to access this document."
+    assert download_res.status_code == 403, download_res.text
+    assert download_res.json()["detail"] == "Access denied"
