@@ -70,7 +70,11 @@
                 document.getElementById("docsSection").style.display = "block";
                 fetchDocuments();
             } else {
-                document.getElementById("loginMsg").innerText = data.detail || "Login failed";
+                let errorMsg = data.detail;
+                if (typeof errorMsg === 'object') {
+                    errorMsg = JSON.stringify(errorMsg);
+                }
+                document.getElementById("loginMsg").innerText = errorMsg || "Login failed";
                 document.getElementById("loginMsg").className = "error";
             }
         } catch (err) {
@@ -103,7 +107,11 @@
             document.getElementById("uploadMsg").className = "success";
             fetchDocuments();
         } else {
-            document.getElementById("uploadMsg").innerText = "Upload failed";
+            let errorMsg = data.detail;
+            if (typeof errorMsg === 'object') {
+                errorMsg = JSON.stringify(errorMsg);
+            }
+            document.getElementById("uploadMsg").innerText = errorMsg || "Upload failed";
             document.getElementById("uploadMsg").className = "error";
         }
     }
