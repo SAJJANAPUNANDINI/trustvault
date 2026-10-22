@@ -5,57 +5,79 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TrustVault - Secure Document Management</title>
     <style>
-        body { font-family: Arial, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; }
-        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0px 0px 10px rgba(0,0,0,0.1); }
+        body { font-family: Arial, sans-serif; background: #f4f7f6; margin: 0; padding: 20px; }
+        .container { max-width: 760px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px #0001; }
         h2 { color: #333; text-align: center; }
         .section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #fafafa; }
         input, select, button { width: 100%; padding: 10px; margin-top: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        button { background-color: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; }
-        button:hover { background-color: #0056b3; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background: #0056b3; }
         #docList { margin-top: 10px; padding-left: 20px; }
         .success { color: green; font-weight: bold; }
         .error { color: red; font-weight: bold; }
+        .doc-item { margin: 12px 0; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 5px; }
+        .doc-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+        .doc-actions button { width: auto; flex: 1; min-width: 100px; }
+        .delete-btn { background: #dc3545; }
+        .delete-btn:hover { background: #a71d2a; }
+        .edit-btn { background: #198754; }
+        .edit-btn:hover { background: #146c43; }
+        .muted { color: #666; font-size: 0.9em; }
+        .grant-btn { background: #6f42c1; }
+        .revoke-btn { background: #fd7e14; }
     </style>
 </head>
 <body>
-
 <div class="container">
     <h2>🔐 TrustVault Portal</h2>
 
-    <!-- Register Section -->
     <div class="section" id="registerSection">
         <h3>Register New User</h3>
-        <input type="text" id="regUsername" placeholder="Username">
-        <input type="password" id="regPassword" placeholder="Password">
+        <input type="text" id="regUsername" placeholder="Username (3–50 characters)" maxlength="50">
+        <input type="password" id="regPassword" placeholder="Password (at least 8 characters)" minlength="8" maxlength="128">
+        <label for="regRole">Role </label>
         <select id="regRole">
-            <option value="viewer">Viewer</option>
+            <option value="viewer" selected>Viewer</option>
             <option value="admin">Admin</option>
         </select>
         <button onclick="registerUser()">Register</button>
         <p id="registerMsg"></p>
     </div>
 
-    <!-- Login Section -->
     <div class="section" id="loginSection">
         <h3>Login</h3>
-        <input type="text" id="username" placeholder="Username" placeholder="Username">
-        <input type="password" id="password" placeholder="Password">
+        <input type="text" id="username" placeholder="Username" autocomplete="username">
+        <input type="password" id="password" placeholder="Password" autocomplete="current-password">
         <button onclick="login()">Login</button>
         <p id="loginMsg"></p>
     </div>
 
-    <!-- Upload Section -->
+    <div class="section" id="sessionSection" style="display:none;">
+        <p id="sessionMsg"></p>
+        <button onclick="logout()">Logout</button>
+    </div>
+
     <div class="section" id="uploadSection" style="display:none;">
-        <h3>Upload Document</h3>
-        <input type="text" id="docTitle" placeholder="Document Title">
-        <input type="file" id="fileInput">
+        <h3>Upload Document (Admin only)</h3>
+        <input type="text" id="docTitle" placeholder="Document Title" maxlength="200">
+        <label for="docCategory">Document Category</label>
+        <select id="docCategory">
+            <option value="General" selected>General</option>
+            <option value="Personal Documents">Personal Documents</option>
+            <option value="HR Documents">HR Documents</option>
+            <option value="Financial Documents">Financial Documents</option>
+            <option value="Legal Documents">Legal Documents</option>
+            <option value="Project Documents">Project Documents</option>
+            <option value="Confidential">Confidential</option>
+            <option value="Other">Other</option>
+        </select>
+        <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg">
         <button onclick="uploadDocument()">Upload File</button>
         <p id="uploadMsg"></p>
     </div>
 
-    <!-- Documents List Section -->
     <div class="section" id="docsSection" style="display:none;">
-        <h3>Your Documents</h3>
+        <h3>Documents You Can Access</h3>
         <button onclick="fetchDocuments()">Refresh Documents List</button>
         <ul id="docList"></ul>
     </div>
@@ -63,127 +85,316 @@
 
 <script>
     let authToken = "";
+    let currentRole = "";
+    let currentUsername = "";
+
+    function showMessage(id, message, className) {
+        const el = document.getElementById(id);
+        el.textContent = message;
+        el.className = className || "";
+    }
+
+    async function readResponse(response) {
+        const text = await response.text();
+        try { return text ? JSON.parse(text) : {}; }
+        catch { return { detail: text || "Unexpected server response." }; }
+    }
 
     async function registerUser() {
-        const user = document.getElementById("regUsername").value;
-        const pass = document.getElementById("regPassword").value;
+        const username = document.getElementById("regUsername").value.trim();
+        const password = document.getElementById("regPassword").value;
         const role = document.getElementById("regRole").value;
-
-        if (!user || !pass) {
-            alert("Please enter username and password!");
+        if (!username || !password) {
+            showMessage("registerMsg", "Enter a username and password.", "error");
             return;
         }
-
         try {
             const response = await fetch("/api/register", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username: user, password: pass, role: role })
+                body: JSON.stringify({ username, password, role })
             });
-            const data = await response.json();
-            if (response.ok) {
-                document.getElementById("registerMsg").innerText = "Registration Successful! You can login now.";
-                document.getElementById("registerMsg").className = "success";
-            } else {
-                let errorMsg = data.detail;
-                if (typeof errorMsg === 'object') {
-                    errorMsg = JSON.stringify(errorMsg);
-                }
-                document.getElementById("registerMsg").innerText = errorMsg || "Registration failed";
-                document.getElementById("registerMsg").className = "error";
-            }
-        } catch (err) {
-            alert("Error connecting to server");
+            const data = await readResponse(response);
+            let message = response.ok
+                ? `Registration successful as ${data.role || "viewer"}. You can log in now.`
+                : (typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || "Registration failed."));
+            showMessage("registerMsg", message, response.ok ? "success" : "error");
+        } catch {
+            showMessage("registerMsg", "Could not connect to the server.", "error");
         }
     }
 
     async function login() {
-        const user = document.getElementById("username").value;
-        const pass = document.getElementById("password").value;
-
+        const username = document.getElementById("username").value.trim();
+        const password = document.getElementById("password").value;
         const formData = new URLSearchParams();
-        formData.append("username", user);
-        formData.append("password", pass);
-
+        formData.append("username", username);
+        formData.append("password", password);
         try {
             const response = await fetch("/api/login", {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 body: formData
             });
-            const data = await response.json();
-            if (response.ok) {
-                authToken = data.access_token;
-                document.getElementById("loginMsg").innerText = "Login Successful!";
-                document.getElementById("loginMsg").className = "success";
-                document.getElementById("uploadSection").style.display = "block";
-                document.getElementById("docsSection").style.display = "block";
-                fetchDocuments();
-            } else {
-                let errorMsg = data.detail;
-                if (typeof errorMsg === 'object') {
-                    errorMsg = JSON.stringify(errorMsg);
-                }
-                document.getElementById("loginMsg").innerText = errorMsg || "Login failed";
-                document.getElementById("loginMsg").className = "error";
+            const data = await readResponse(response);
+            if (!response.ok) {
+                showMessage("loginMsg", data.detail || "Login failed.", "error");
+                return;
             }
-        } catch (err) {
-            alert("Error connecting to server");
+            authToken = data.access_token;
+            currentRole = data.role || "viewer";
+            currentUsername = data.username || username;
+            document.getElementById("loginSection").style.display = "none";
+            document.getElementById("registerSection").style.display = "none";
+            document.getElementById("sessionSection").style.display = "block";
+            document.getElementById("sessionMsg").textContent = `Logged in as ${currentUsername} (${currentRole}).`;
+            document.getElementById("uploadSection").style.display = currentRole === "admin" ? "block" : "none";
+            document.getElementById("docsSection").style.display = "block";
+            showMessage("loginMsg", "Login successful.", "success");
+            await fetchDocuments();
+        } catch {
+            showMessage("loginMsg", "Could not connect to the server.", "error");
         }
     }
 
-    async function uploadDocument() {
-        const title = document.getElementById("docTitle").value;
-        const fileInput = document.getElementById("fileInput").files[0];
+    function logout() {
+        authToken = "";
+        currentRole = "";
+        currentUsername = "";
+        document.getElementById("loginSection").style.display = "block";
+        document.getElementById("registerSection").style.display = "block";
+        document.getElementById("sessionSection").style.display = "none";
+        document.getElementById("uploadSection").style.display = "none";
+        document.getElementById("docsSection").style.display = "none";
+        document.getElementById("docList").replaceChildren();
+        showMessage("loginMsg", "Logged out.", "success");
+    }
 
-        if (!title || !fileInput) {
-            alert("Please enter title and select a file!");
+    async function uploadDocument() {
+        if (currentRole !== "admin") {
+            showMessage("uploadMsg", "Only admins can upload documents.", "error");
             return;
         }
-
+        const title = document.getElementById("docTitle").value.trim();
+        const category = document.getElementById("docCategory").value.trim() || "General";
+        const file = document.getElementById("fileInput").files[0];
+        if (!title || !file) {
+            showMessage("uploadMsg", "Enter a title and select a file.", "error");
+            return;
+        }
         const formData = new FormData();
         formData.append("title", title);
-        formData.append("file", fileInput);
-
-        const response = await fetch("/api/upload", {
-            method: "POST",
-            headers: { "Authorization": "Bearer " + authToken },
-            body: formData
-        });
-
-        const data = await response.json();
-        if (response.ok) {
-            document.getElementById("uploadMsg").innerText = "Uploaded successfully: " + data.filename;
-            document.getElementById("uploadMsg").className = "success";
-            fetchDocuments();
-        } else {
-            let errorMsg = data.detail;
-            if (typeof errorMsg === 'object') {
-                errorMsg = JSON.stringify(errorMsg);
+        formData.append("category", category);
+        formData.append("file", file);
+        try {
+            const response = await fetch("/api/upload", {
+                method: "POST",
+                headers: { "Authorization": "Bearer " + authToken },
+                body: formData
+            });
+            const data = await readResponse(response);
+            showMessage("uploadMsg", response.ok ? "Uploaded successfully: " + data.filename : (data.detail || "Upload failed."), response.ok ? "success" : "error");
+            if (response.ok) {
+                document.getElementById("fileInput").value = "";
+                document.getElementById("docTitle").value = "";
+                document.getElementById("docCategory").value = "";
+                await fetchDocuments();
             }
-            document.getElementById("uploadMsg").innerText = errorMsg || "Upload failed";
-            document.getElementById("uploadMsg").className = "error";
+        } catch {
+            showMessage("uploadMsg", "Could not connect to the server.", "error");
         }
     }
 
     async function fetchDocuments() {
-        const response = await fetch("/api/documents", {
-            method: "GET",
-            headers: { "Authorization": "Bearer " + authToken }
-        });
-        const data = await response.json();
-        const list = document.getElementById("docList");
-        list.innerHTML = "";
-        
-        if (data.documents) {
-            data.documents.forEach(doc => {
-                let li = document.createElement("li");
-                li.innerHTML = `<b>${doc[1]}</b> (${doc[2]}) - <a href="/api/download/${doc[2]}" target="_blank">Download</a>`;
+        try {
+            const response = await fetch("/api/documents", {
+                headers: { "Authorization": "Bearer " + authToken }
+            });
+            const data = await readResponse(response);
+            const list = document.getElementById("docList");
+            list.replaceChildren();
+            if (!response.ok) {
+                showMessage("loginMsg", data.detail || "Could not load documents.", "error");
+                return;
+            }
+
+            (data.documents || []).forEach(doc => {
+                // API row: id, title, filename, owner_id, category, upload_date, username
+                const [id, titleText, filename, ownerId, category, uploadDate, ownerName] = doc;
+                const li = document.createElement("li");
+                li.className = "doc-item";
+                const title = document.createElement("strong");
+                title.textContent = titleText;
+                li.appendChild(title);
+                const details = document.createElement("p");
+                details.className = "muted";
+                details.textContent = `File: ${filename} | Category: ${category || "General"} | Uploaded: ${uploadDate} | Owner: ${ownerName}`;
+                li.appendChild(details);
+
+                const actions = document.createElement("div");
+                actions.className = "doc-actions";
+                const download = document.createElement("button");
+                download.textContent = "Download";
+                download.onclick = () => downloadDocument(id, filename);
+                actions.appendChild(download);
+
+                if (currentRole === "admin") {
+                    const edit = document.createElement("button");
+                    edit.textContent = "Edit details";
+                    edit.className = "edit-btn";
+                    edit.onclick = () => editDocument(id, titleText, category || "General");
+                    actions.appendChild(edit);
+
+                    const del = document.createElement("button");
+                    del.textContent = "Delete";
+                    del.className = "delete-btn";
+                    del.onclick = () => deleteDocument(id, titleText);
+                    actions.appendChild(del);
+
+                    const grant = document.createElement("button");
+                    grant.textContent = "Grant Permission";
+                    grant.className = "grant-btn";
+                    grant.onclick = () => changePermission(id, "grant");
+                    actions.appendChild(grant);
+
+                    const revoke = document.createElement("button");
+                    revoke.textContent = "Revoke Permission";
+                    revoke.className = "revoke-btn";
+                    revoke.onclick = () => changePermission(id, "revoke");
+                    actions.appendChild(revoke);
+                }
+                li.appendChild(actions);
                 list.appendChild(li);
             });
+            if (!(data.documents || []).length) {
+                const li = document.createElement("li");
+                li.textContent = "No documents available yet.";
+                list.appendChild(li);
+            }
+        } catch {
+            showMessage("loginMsg", "Could not load documents.", "error");
+        }
+    }
+
+    async function downloadDocument(id, filename) {
+        try {
+            const response = await fetch(`/api/documents/${encodeURIComponent(id)}/download`, {
+                headers: { "Authorization": "Bearer " + authToken }
+            });
+            if (!response.ok) {
+                const err = await readResponse(response);
+                alert(err.detail || "Download failed.");
+                return;
+            }
+            const blob = await response.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = objectUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(objectUrl);
+        } catch {
+            alert("Could not download file.");
+        }
+    }
+
+    async function editDocument(id, oldTitle, oldCategory) {
+        const title = prompt("Enter updated document title:", oldTitle);
+        if (title === null) return;
+        const category = prompt("Enter updated category:", oldCategory);
+        if (category === null) return;
+        if (!title.trim()) {
+            alert("Document title cannot be blank.");
+            return;
+        }
+        try {
+            const response = await fetch(`/api/documents/${encodeURIComponent(id)}/update`, {
+                method: "POST",
+                headers: {
+                    "Authorization": "Bearer " + authToken,
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ title: title.trim(), category: category.trim() || "General" })
+            });
+            const data = await readResponse(response);
+            if (!response.ok) {
+                alert(data.detail || "Update failed.");
+                return;
+            }
+            alert("Document details updated.");
+            await fetchDocuments();
+        } catch {
+            alert("Could not connect to the server.");
+        }
+    }
+
+    async function deleteDocument(id, title) {
+        if (!confirm(`Delete "${title}" permanently? This cannot be undone.`)) return;
+        try {
+            const response = await fetch(`/api/documents/${encodeURIComponent(id)}/delete`, {
+                method: "POST",
+                headers: { "Authorization": "Bearer " + authToken }
+            });
+            const data = await readResponse(response);
+            if (!response.ok) {
+                alert(data.detail || "Delete failed.");
+                return;
+            }
+            alert("Document deleted.");
+            await fetchDocuments();
+        } catch {
+            alert("Could not connect to the server.");
+        }
+    }
+
+    async function changePermission(id, action) {
+        const username = prompt(
+            action === "grant"
+                ? "Enter the Viewer username to grant access:"
+                : "Enter the username whose access you want to revoke:"
+        );
+        if (username === null) return;
+        if (!username.trim()) {
+            alert("Username cannot be blank.");
+            return;
+        }
+
+        let accessType = "read";
+        if (action === "grant") {
+            const choice = prompt("Enter access type: read or edit", "read");
+            if (choice === null) return;
+            accessType = choice.trim().toLowerCase();
+            if (!["read", "edit"].includes(accessType)) {
+                alert("Access type must be read or edit.");
+                return;
+            }
+        }
+
+        try {
+            const response = await fetch(
+                `/api/documents/${encodeURIComponent(id)}/${action}`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Authorization": "Bearer " + authToken,
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({ username: username.trim(), access_type: accessType })
+                }
+            );
+            const data = await readResponse(response);
+            if (!response.ok) {
+                alert(data.detail || `Could not ${action} permission.`);
+                return;
+            }
+            alert(data.message || (action === "grant" ? "Permission granted." : "Permission revoked."));
+            await fetchDocuments();
+        } catch {
+            alert("Could not connect to the server.");
         }
     }
 </script>
-
 </body>
 </html>

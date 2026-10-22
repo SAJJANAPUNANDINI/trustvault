@@ -3,3 +3,9 @@ uploads/
 __pycache__/
 .pytest_cache/
 *.db
+*.sqlite
+*.sqlite3
+
+# Temporary review files
+changes_review.txt
+main_changes.txt
