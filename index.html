@@ -9,7 +9,7 @@
         .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0px 0px 10px rgba(0,0,0,0.1); }
         h2 { color: #333; text-align: center; }
         .section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #fafafa; }
-        input, button { width: 100%; padding: 10px; margin-top: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        input, select, button { width: 100%; padding: 10px; margin-top: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
         button { background-color: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; }
         button:hover { background-color: #0056b3; }
         #docList { margin-top: 10px; padding-left: 20px; }
@@ -55,11 +55,16 @@
         const user = document.getElementById("username").value;
         const pass = document.getElementById("password").value;
 
+        // OAuth2PasswordRequestForm requires x-www-form-urlencoded format
+        const formData = new URLSearchParams();
+        formData.append("username", user);
+        formData.append("password", pass);
+
         try {
             const response = await fetch("/api/login", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username: user, password: pass })
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: formData
             });
             const data = await response.json();
             if (response.ok) {
