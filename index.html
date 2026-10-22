@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TrustVault - Secure Document Management</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f7f6; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0px 0px 10px rgba(0,0,0,0.1); }
+        h2 { color: #333; text-align: center; }
+        .section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #fafafa; }
+        input, button { width: 100%; padding: 10px; margin-top: 8px; margin-bottom: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #0056b3; }
+        #docList { margin-top: 10px; padding-left: 20px; }
+        .success { color: green; font-weight: bold; }
+        .error { color: red; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>🔐 TrustVault Portal</h2>
+
+    <!-- Login Section -->
+    <div class="section" id="loginSection">
+        <h3>Login</h3>
+        <input type="text" id="username" placeholder="Username" value="nandini">
+        <input type="password" id="password" placeholder="Password" value="nandini">
+        <button onclick="login()">Login</button>
+        <p id="loginMsg"></p>
+    </div>
+
+    <!-- Upload Section -->
+    <div class="section" id="uploadSection" style="display:none;">
+        <h3>Upload Document</h3>
+        <input type="text" id="docTitle" placeholder="Document Title">
+        <input type="file" id="fileInput">
+        <button onclick="uploadDocument()">Upload File</button>
+        <p id="uploadMsg"></p>
+    </div>
+
+    <!-- Documents List Section -->
+    <div class="section" id="docsSection" style="display:none;">
+        <h3>Your Documents</h3>
+        <button onclick="fetchDocuments()">Refresh Documents List</button>
+        <ul id="docList"></ul>
+    </div>
+</div>
+
+<script>
+    let authToken = "";
+
+    async function login() {
+        const user = document.getElementById("username").value;
+        const pass = document.getElementById("password").value;
+
+        try {
+            const response = await fetch("http://127.0.0.1:8000/api/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: user, password: pass })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                authToken = data.access_token;
+                document.getElementById("loginMsg").innerText = "Login Successful!";
+                document.getElementById("loginMsg").className = "success";
+                document.getElementById("uploadSection").style.display = "block";
+                document.getElementById("docsSection").style.display = "block";
+                fetchDocuments();
+            } else {
+                document.getElementById("loginMsg").innerText = data.detail || "Login failed";
+                document.getElementById("loginMsg").className = "error";
+            }
+        } catch (err) {
+            alert("Error connecting to server");
+        }
+    }
+
+    async function uploadDocument() {
+        const title = document.getElementById("docTitle").value;
+        const fileInput = document.getElementById("fileInput").files[0];
+
+        if (!title || !fileInput) {
+            alert("Please enter title and select a file!");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("title", title);
+        formData.append("file", fileInput);
+
+        const response = await fetch("http://127.0.0.1:8000/api/upload", {
+            method: "POST",
+            headers: { "Authorization": "Bearer " + authToken },
+            body: formData
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+            document.getElementById("uploadMsg").innerText = "Uploaded successfully: " + data.filename;
+            document.getElementById("uploadMsg").className = "success";
+            fetchDocuments();
+        } else {
+            document.getElementById("uploadMsg").innerText = "Upload failed";
+            document.getElementById("uploadMsg").className = "error";
+        }
+    }
+
+    async function fetchDocuments() {
+        const response = await fetch("http://127.0.0.1:8000/api/documents", {
+            method: "GET",
+            headers: { "Authorization": "Bearer " + authToken }
+        });
+        const data = await response.json();
+        const list = document.getElementById("docList");
+        list.innerHTML = "";
+        
+        if (data.documents) {
+            data.documents.forEach(doc => {
+                let li = document.createElement("li");
+                li.innerHTML = '<b>${doc[1]}</b> (${doc[2]) - <a href="http://127.0.0.1:8000/api/download/${doc[2]}" target="_blank">Download</a>';
+                list.appendChild(li);
+            });
+        }
+    }
+</script>
+
+</body>
+</html>
