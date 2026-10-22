@@ -22,11 +22,24 @@
 <div class="container">
     <h2>🔐 TrustVault Portal</h2>
 
+    <!-- Register Section -->
+    <div class="section" id="registerSection">
+        <h3>Register New User</h3>
+        <input type="text" id="regUsername" placeholder="Username">
+        <input type="password" id="regPassword" placeholder="Password">
+        <select id="regRole">
+            <option value="viewer">Viewer</option>
+            <option value="admin">Admin</option>
+        </select>
+        <button onclick="registerUser()">Register</button>
+        <p id="registerMsg"></p>
+    </div>
+
     <!-- Login Section -->
     <div class="section" id="loginSection">
         <h3>Login</h3>
-        <input type="text" id="username" placeholder="Username" value="nandini">
-        <input type="password" id="password" placeholder="Password" value="nandini">
+        <input type="text" id="username" placeholder="Username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
         <button onclick="login()">Login</button>
         <p id="loginMsg"></p>
     </div>
@@ -51,11 +64,43 @@
 <script>
     let authToken = "";
 
+    async function registerUser() {
+        const user = document.getElementById("regUsername").value;
+        const pass = document.getElementById("regPassword").value;
+        const role = document.getElementById("regRole").value;
+
+        if (!user || !pass) {
+            alert("Please enter username and password!");
+            return;
+        }
+
+        try {
+            const response = await fetch("/api/register", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: user, password: pass, role: role })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                document.getElementById("registerMsg").innerText = "Registration Successful! You can login now.";
+                document.getElementById("registerMsg").className = "success";
+            } else {
+                let errorMsg = data.detail;
+                if (typeof errorMsg === 'object') {
+                    errorMsg = JSON.stringify(errorMsg);
+                }
+                document.getElementById("registerMsg").innerText = errorMsg || "Registration failed";
+                document.getElementById("registerMsg").className = "error";
+            }
+        } catch (err) {
+            alert("Error connecting to server");
+        }
+    }
+
     async function login() {
         const user = document.getElementById("username").value;
         const pass = document.getElementById("password").value;
 
-        // OAuth2PasswordRequestForm requires x-www-form-urlencoded format
         const formData = new URLSearchParams();
         formData.append("username", user);
         formData.append("password", pass);
