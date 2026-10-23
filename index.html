@@ -5,538 +5,184 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TrustVault | Secure Document Sharing</title>
-
 <style>
-* { box-sizing: border-box; }
-
-:root {
-    --purple: #5926a8;
-    --pink: #d12dbd;
-    --text: #282438;
-    --muted: #858096;
-}
-
-body {
-    margin: 0;
-    min-height: 100vh;
-    padding: 25px 15px;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    font-family: Arial, sans-serif;
-    color: var(--text);
-    background: linear-gradient(125deg, #df66cf, #8240ce 48%, #ec30ba);
-}
-
-button, input, select { font: inherit; }
-button { cursor: pointer; }
-
-.app {
-    width: 100%;
-    max-width: 1150px;
-    min-height: 650px;
-    display: grid;
-    grid-template-columns: 0.9fr 1.1fr;
-    overflow: hidden;
-    background: white;
-    border-radius: 20px;
-    box-shadow: 0 25px 70px #35104b45;
-}
-
-.welcome {
-    position: relative;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    padding: 40px;
-    color: white;
-    background: linear-gradient(150deg, #30218b, #5422a6 52%, #b600c9);
-}
-
-.welcome::before, .welcome::after {
-    content: "";
-    position: absolute;
-    border-radius: 50%;
-    pointer-events: none;
-}
-
-.welcome::before {
-    width: 360px;
-    height: 360px;
-    right: -190px;
-    top: 80px;
-    background: linear-gradient(135deg, #08c7e9, #5530dc);
-}
-
-.welcome::after {
-    width: 300px;
-    height: 300px;
-    left: -150px;
-    bottom: -90px;
-    background: linear-gradient(140deg, #167eea, #c000e7);
-}
-
-.brand, .welcome-copy, .welcome-footer {
-    position: relative;
-    z-index: 1;
-}
-
-.brand {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 21px;
-    font-weight: bold;
-    letter-spacing: 1px;
-}
-
-.brand-icon {
-    width: 48px;
-    height: 48px;
-    display: grid;
-    place-items: center;
-    border: 2px solid #ffffffc9;
-    border-radius: 15px;
-    font-size: 25px;
-}
-
-.welcome-copy { margin: 35px 0; }
-
-.welcome-copy h1 {
-    font-size: clamp(34px, 4vw, 48px);
-    line-height: 1.13;
-    margin: 0 0 20px;
-}
-
-.welcome-copy p {
-    max-width: 330px;
-    line-height: 1.8;
-    font-size: 16px;
-    color: #eee5ff;
-}
-
-.features {
-    display: grid;
-    gap: 13px;
-    margin-top: 32px;
-}
-
-.feature {
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    font-size: 14px;
-    color: #f6edff;
-}
-
-.feature span {
-    width: 30px;
-    height: 30px;
-    display: grid;
-    place-items: center;
-    background: #ffffff20;
-    border-radius: 9px;
-}
-
-.welcome-footer {
-    font-size: 12px;
-    color: #eee0ff;
-}
-
-.content {
-    padding: 38px clamp(22px, 4vw, 55px);
-    min-width: 0;
-    background: white;
-}
-
-.top-label {
-    color: var(--purple);
-    text-transform: uppercase;
-    letter-spacing: 2px;
-    font-size: 11px;
-    font-weight: bold;
-    margin: 5px 0 13px;
-}
-
-.content h2 {
-    font-size: 31px;
-    margin: 0 0 10px;
-}
-
-.subtitle {
-    margin: 0 0 28px;
-    color: var(--muted);
-    font-size: 14px;
-    line-height: 1.6;
-}
-
-.tabs {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 5px;
-    background: #f3eff9;
-    border-radius: 10px;
-    gap: 5px;
-    margin-bottom: 25px;
-}
-
-.tab {
-    padding: 12px 8px;
-    border: 0;
-    border-radius: 8px;
-    color: #746b86;
-    background: transparent;
-    font-size: 14px;
-    font-weight: bold;
-}
-
-.tab.active {
-    color: white;
-    background: linear-gradient(100deg, var(--purple), var(--pink));
-}
-
-.form-panel { display: none; }
-.form-panel.active { display: block; }
-
-.field { margin-bottom: 17px; }
-
-.field label {
-    display: block;
-    font-size: 13px;
-    font-weight: bold;
-    margin-bottom: 8px;
-    color: #464055;
-}
-
-.field input, .field select {
-    width: 100%;
-    min-height: 45px;
-    padding: 12px 14px;
-    border: 1px solid #e1dce9;
-    border-radius: 8px;
-    background: white;
-    color: #302a3d;
-    outline: none;
-}
-
-.field input:focus, .field select:focus {
-    border-color: #a33bc6;
-    box-shadow: 0 0 0 3px #a33bc615;
-}
-
-.primary-btn {
-    width: 100%;
-    min-height: 48px;
-    margin-top: 5px;
-    border: 0;
-    border-radius: 8px;
-    color: white;
-    background: linear-gradient(100deg, #7134bf, #d02dbb);
-    font-weight: bold;
-}
-
-.primary-btn:disabled {
-    opacity: .65;
-    cursor: wait;
-}
-
-.message {
-    font-size: 13px;
-    line-height: 1.5;
-    overflow-wrap: anywhere;
-    margin: 14px 0 0;
-}
-
-.success { color: #16814b; }
-.error { color: #c32e50; }
-
-.switch-text {
-    margin: 23px 0 0;
-    text-align: center;
-    color: var(--muted);
-    font-size: 13px;
-}
-
-.text-btn {
-    border: 0;
-    padding: 0;
-    background: transparent;
-    color: #8734c1;
-    font-weight: bold;
-}
-
-.session-panel {
-    display: none;
-    margin-top: 20px;
-    padding: 18px;
-    border: 1px solid #e6d9f5;
-    background: #faf6ff;
-    border-radius: 12px;
-}
-
-.session-panel h3 { margin-top: 0; }
-
-.secondary-btn {
-    padding: 11px 16px;
-    border: 1px solid #ded2ee;
-    border-radius: 8px;
-    background: white;
-    color: var(--purple);
-    font-weight: bold;
-}
-
-.workspace {
-    display: none;
-    margin-top: 24px;
-}
-
-.workspace h3 { margin-bottom: 12px; }
-
-.muted {
-    color: #777184;
-    font-size: 12px;
-    line-height: 1.6;
-}
-
-#docList {
-    list-style: none;
-    padding: 0;
-}
-
-.doc-item {
-    overflow-wrap: anywhere;
-    padding: 14px;
-    margin: 12px 0;
-    border: 1px solid #e5dfed;
-    border-radius: 9px;
-    background: #fcfaff;
-}
-
-.doc-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 7px;
-    margin-top: 10px;
-}
-
-.doc-actions button {
-    padding: 9px 11px;
-    border: 0;
-    border-radius: 6px;
-    color: white;
-    background: #6e37b5;
-    font-size: 12px;
-}
-
-.doc-actions .delete-btn { background: #d63c58; }
-.doc-actions .edit-btn { background: #21875b; }
-.doc-actions .revoke-btn { background: #d77a20; }
-
-#searchStatus { margin-top: 8px; }
-
-@media (max-width: 760px) {
-    body {
-        padding: 12px;
-        align-items: flex-start;
-    }
-
-    .app {
-        grid-template-columns: 1fr;
-        max-width: 520px;
-        border-radius: 15px;
-    }
-
-    .welcome { min-height: 250px; padding: 25px; }
-    .welcome-copy { margin: 25px 0 5px; }
-    .welcome-copy h1 { font-size: 32px; }
-    .features { display: none; }
-    .welcome-footer { margin-top: 20px; }
-    .content { padding: 28px 22px; }
+*{box-sizing:border-box}
+:root{--purple:#5926a8;--pink:#d12dbd;--text:#282438;--muted:#858096}
+body{margin:0;min-height:100vh;padding:25px 15px;display:flex;justify-content:center;align-items:center;font-family:Arial,sans-serif;color:var(--text);background:linear-gradient(125deg,#df66cf,#8240ce 48%,#ec30ba)}
+button,input,select{font:inherit}button{cursor:pointer}
+.app{width:100%;max-width:1150px;min-height:650px;display:grid;grid-template-columns:.9fr 1.1fr;overflow:hidden;background:#fff;border-radius:20px;box-shadow:0 25px 70px #35104b45}
+.welcome{position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;padding:40px;color:white;background:linear-gradient(150deg,#30218b,#5422a6 52%,#b600c9)}
+.welcome:before,.welcome:after{content:"";position:absolute;border-radius:50%;pointer-events:none}
+.welcome:before{width:360px;height:360px;right:-190px;top:80px;background:linear-gradient(135deg,#08c7e9,#5530dc)}
+.welcome:after{width:300px;height:300px;left:-150px;bottom:-90px;background:linear-gradient(140deg,#167eea,#c000e7)}
+.brand,.welcome-copy,.welcome-footer{position:relative;z-index:1}
+.brand{display:flex;align-items:center;gap:12px;font-size:21px;font-weight:bold;letter-spacing:1px}
+.brand-icon{width:48px;height:48px;display:grid;place-items:center;border:2px solid #ffffffc9;border-radius:15px;font-size:25px}
+.welcome-copy{margin:35px 0}
+.welcome-copy h1{font-size:clamp(34px,4vw,48px);line-height:1.13;margin:0 0 20px}
+.welcome-copy p{max-width:330px;line-height:1.8;font-size:16px;color:#eee5ff}
+.features{display:grid;gap:13px;margin-top:32px}
+.feature{display:flex;gap:12px;align-items:center;font-size:14px;color:#f6edff}
+.feature span{width:30px;height:30px;display:grid;place-items:center;background:#ffffff20;border-radius:9px}
+.welcome-footer{font-size:12px;color:#eee0ff}
+.content{padding:38px clamp(22px,4vw,55px);min-width:0;background:white}
+.top-label{color:var(--purple);text-transform:uppercase;letter-spacing:2px;font-size:11px;font-weight:bold;margin:5px 0 13px}
+.content h2{font-size:31px;margin:0 0 10px}
+.subtitle{margin:0 0 28px;color:var(--muted);font-size:14px;line-height:1.6}
+.tabs{display:grid;grid-template-columns:1fr 1fr;padding:5px;background:#f3eff9;border-radius:10px;gap:5px;margin-bottom:25px}
+.tab{padding:12px 8px;border:0;border-radius:8px;color:#746b86;background:transparent;font-size:14px;font-weight:bold}
+.tab.active{color:white;background:linear-gradient(100deg,var(--purple),var(--pink))}
+.form-panel{display:none}.form-panel.active{display:block}
+.field{margin-bottom:17px}
+.field label{display:block;font-size:13px;font-weight:bold;margin-bottom:8px;color:#464055}
+.field input,.field select{width:100%;min-height:45px;padding:12px 14px;border:1px solid #e1dce9;border-radius:8px;background:white;color:#302a3d;outline:none}
+.field input:focus,.field select:focus{border-color:#a33bc6;box-shadow:0 0 0 3px #a33bc615}
+.primary-btn{width:100%;min-height:48px;margin-top:5px;border:0;border-radius:8px;color:white;background:linear-gradient(100deg,#7134bf,#d02dbb);font-weight:bold}
+.primary-btn:disabled{opacity:.65;cursor:wait}
+.message{font-size:13px;line-height:1.5;overflow-wrap:anywhere;margin:14px 0 0}
+.success{color:#16814b}.error{color:#c32e50}
+.switch-text{margin:23px 0 0;text-align:center;color:var(--muted);font-size:13px}
+.text-btn{border:0;padding:0;background:transparent;color:#8734c1;font-weight:bold}
+.session-panel{display:none;margin-top:20px;padding:18px;border:1px solid #e6d9f5;background:#faf6ff;border-radius:12px}
+.session-panel h3{margin-top:0}
+.secondary-btn{padding:11px 16px;border:1px solid #ded2ee;border-radius:8px;background:white;color:var(--purple);font-weight:bold}
+.workspace{display:none;margin-top:24px}.workspace h3{margin-bottom:12px}
+.muted{color:#777184;font-size:12px;line-height:1.6}
+#docList{list-style:none;padding:0}
+.doc-item{overflow-wrap:anywhere;padding:14px;margin:12px 0;border:1px solid #e5dfed;border-radius:9px;background:#fcfaff}
+.doc-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}
+.doc-actions button{padding:9px 11px;border:0;border-radius:6px;color:white;background:#6e37b5;font-size:12px}
+.doc-actions .delete-btn{background:#d63c58}
+.doc-actions .edit-btn{background:#21875b}
+.doc-actions .revoke-btn{background:#d77a20}
+#searchStatus{margin-top:8px}
+@media(max-width:760px){
+body{padding:12px;align-items:flex-start}
+.app{grid-template-columns:1fr;max-width:520px;border-radius:15px}
+.welcome{min-height:250px;padding:25px}
+.welcome-copy{margin:25px 0 5px}
+.welcome-copy h1{font-size:32px}
+.features{display:none}
+.welcome-footer{margin-top:20px}
+.content{padding:28px 22px}
 }
 </style>
 </head>
-
 <body>
 <div class="app">
-
-    <aside class="welcome">
-        <div class="brand">
-            <div class="brand-icon">🔐</div>
-            <span>TRUSTVAULT</span>
+<aside class="welcome">
+    <div class="brand"><div class="brand-icon">🔐</div><span>TRUSTVAULT</span></div>
+    <div class="welcome-copy">
+        <h1>Welcome to<br>TrustVault</h1>
+        <p>Secure document sharing. Your files, your permissions, your control.</p>
+        <div class="features">
+            <div class="feature"><span>✓</span> Protected document access</div>
+            <div class="feature"><span>✓</span> Role-based permissions</div>
+            <div class="feature"><span>✓</span> Auditable document activity</div>
+            <div class="feature"><span>✓</span> Secure document management</div>
         </div>
+    </div>
+    <div class="welcome-footer">Secure Document Management Portal</div>
+</aside>
 
-        <div class="welcome-copy">
-            <h1>Welcome to<br>TrustVault</h1>
-            <p>Secure document sharing. Your files, your permissions, your control.</p>
+<main class="content">
+<div id="authArea">
+    <div class="top-label">Your secure workspace</div>
+    <h2 id="formTitle">Sign In</h2>
+    <p class="subtitle" id="formSubtitle">Sign in to securely access your documents.</p>
 
-            <div class="features">
-                <div class="feature"><span>✓</span> Protected document access</div>
-                <div class="feature"><span>✓</span> Role-based permissions</div>
-                <div class="feature"><span>✓</span> Auditable document activity</div>
-                <div class="feature"><span>✓</span> Secure document management</div>
-            </div>
-        </div>
+    <div class="tabs">
+        <button class="tab active" id="loginTab" type="button" onclick="switchTab('login')">Sign In</button>
+        <button class="tab" id="registerTab" type="button" onclick="switchTab('register')">Create Account</button>
+    </div>
 
-        <div class="welcome-footer">Secure Document Management Portal</div>
-    </aside>
-
-    <main class="content">
-
-        <div id="authArea">
-            <div class="top-label">Your secure workspace</div>
-            <h2 id="formTitle">Sign In</h2>
-            <p class="subtitle" id="formSubtitle">
-                Sign in to securely access your documents.
-            </p>
-
-            <div class="tabs">
-                <button class="tab active" id="loginTab"
-                        type="button" onclick="switchTab('login')">
-                    Sign In
-                </button>
-                <button class="tab" id="registerTab"
-                        type="button" onclick="switchTab('register')">
-                    Create Account
-                </button>
-            </div>
-
-            <section class="form-panel active" id="loginPanel">
-                <form id="loginForm">
-                    <div class="field">
-                        <label for="username">Username</label>
-                        <input id="username" name="username"
-                               autocomplete="username"
-                               placeholder="Enter your username" required>
-                    </div>
-
-                    <div class="field">
-                        <label for="password">Password</label>
-                        <input id="password" name="password"
-                               type="password"
-                               autocomplete="current-password"
-                               placeholder="Enter your password" required>
-                    </div>
-
-                    <button class="primary-btn" id="loginButton" type="submit">
-                        Sign In
-                    </button>
-                    <p class="message" id="loginMsg" role="status"></p>
-                </form>
-
-                <p class="switch-text">
-                    Don't have an account?
-                    <button class="text-btn" type="button"
-                            onclick="switchTab('register')">Create one</button>
-                </p>
-            </section>
-
-            <section class="form-panel" id="registerPanel">
-                <form id="registerForm">
-                    <div class="field">
-                        <label for="regUsername">Username</label>
-                        <input id="regUsername" name="username"
-                               minlength="3" maxlength="50"
-                               autocomplete="username"
-                               placeholder="Choose a username" required>
-                    </div>
-
-                    <div class="field">
-                        <label for="regPassword">Password</label>
-                        <input id="regPassword" name="password"
-                               type="password" minlength="8" maxlength="128"
-                               autocomplete="new-password"
-                               placeholder="At least 8 characters" required>
-                    </div>
-
-                    <div class="field">
-                        <label for="regRole">Account role</label>
-                        <select id="regRole" name="role" required>
-                            <option value="viewer" selected>Viewer</option>
-                            <option value="owner">Owner</option>
-                        </select>
-                    </div>
-
-                    <button class="primary-btn" id="registerButton" type="submit">
-                        Create Account
-                    </button>
-                    <p class="message" id="registerMsg" role="status"></p>
-                </form>
-
-                <p class="switch-text">
-                    Already registered?
-                    <button class="text-btn" type="button"
-                            onclick="switchTab('login')">Sign in</button>
-                </p>
-            </section>
-        </div>
-
-        <section class="session-panel" id="sessionSection">
-            <h3>Welcome back!</h3>
-            <p id="sessionMsg"></p>
-            <button class="secondary-btn" type="button" onclick="logout()">
-                Sign Out
-            </button>
-        </section>
-
-        <section class="workspace" id="uploadSection">
-            <h3>Upload a document</h3>
-
-            <form id="uploadForm">
-                <div class="field">
-                    <label for="docTitle">Document title</label>
-                    <input id="docTitle" maxlength="200"
-                           placeholder="Enter document title" required>
-                </div>
-
-                <div class="field">
-                    <label for="docCategory">Category</label>
-                    <select id="docCategory">
-                        <option value="General">General</option>
-                        <option value="Personal Documents">Personal Documents</option>
-                        <option value="HR Documents">HR Documents</option>
-                        <option value="Financial Documents">Financial Documents</option>
-                        <option value="Legal Documents">Legal Documents</option>
-                        <option value="Project Documents">Project Documents</option>
-                        <option value="Confidential">Confidential</option>
-                        <option value="Other">Other</option>
-                    </select>
-                </div>
-
-                <div class="field">
-                    <label for="fileInput">Choose file</label>
-                    <input type="file" id="fileInput"
-                           accept=".pdf,.docx,.txt,.png,.jpg,.jpeg" required>
-                    <p class="muted">
-                        Supported: PDF, DOCX, TXT, PNG, JPG, JPEG. Maximum 10 MB.
-                    </p>
-                </div>
-
-                <button class="primary-btn" id="uploadButton" type="submit">
-                    Upload Document
-                </button>
-                <p class="message" id="uploadMsg" role="status"></p>
-            </form>
-        </section>
-
-        <section class="workspace" id="docsSection">
-            <h3>Your Documents</h3>
-
+    <section class="form-panel active" id="loginPanel">
+        <form id="loginForm">
             <div class="field">
-                <label for="documentSearch">Search documents</label>
-                <input type="search" id="documentSearch"
-                       placeholder="Search title, file, category or owner"
-                       oninput="filterDocuments()">
-                <p class="muted" id="searchStatus"></p>
+                <label for="username">Username</label>
+                <input id="username" name="username" autocomplete="username" placeholder="Enter your username" required>
             </div>
+            <div class="field">
+                <label for="password">Password</label>
+                <input id="password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+            </div>
+            <button class="primary-btn" id="loginButton" type="submit">Sign In</button>
+            <p class="message" id="loginMsg" role="status"></p>
+        </form>
+        <p class="switch-text">Don't have an account? <button class="text-btn" type="button" onclick="switchTab('register')">Create one</button></p>
+    </section>
 
-            <button class="secondary-btn" type="button"
-                    onclick="fetchDocuments()">Refresh Documents</button>
+    <section class="form-panel" id="registerPanel">
+        <form id="registerForm">
+            <div class="field">
+                <label for="regUsername">Username</label>
+                <input id="regUsername" name="username" minlength="3" maxlength="50" autocomplete="username" placeholder="Choose a username" required>
+            </div>
+            <div class="field">
+                <label for="regPassword">Password</label>
+                <input id="regPassword" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="At least 8 characters" required>
+            </div>
+            <div class="field">
+                <label for="regRole">Account role</label>
+                <select id="regRole" name="role" required>
+                    <option value="viewer" selected>Viewer</option>
+                    <option value="owner">Owner</option>
+                </select>
+            </div>
+            <button class="primary-btn" id="registerButton" type="submit">Create Account</button>
+            <p class="message" id="registerMsg" role="status"></p>
+        </form>
+        <p class="switch-text">Already registered? <button class="text-btn" type="button" onclick="switchTab('login')">Sign in</button></p>
+    </section>
+</div>
 
-            <ul id="docList"></ul>
-        </section>
+<section class="session-panel" id="sessionSection">
+    <h3>Welcome back!</h3>
+    <p id="sessionMsg"></p>
+    <button class="secondary-btn" type="button" onclick="logout()">Sign Out</button>
+</section>
 
-    </main>
+<section class="workspace" id="uploadSection">
+    <h3>Upload a document</h3>
+    <form id="uploadForm">
+        <div class="field">
+            <label for="docTitle">Document title</label>
+            <input id="docTitle" maxlength="200" placeholder="Enter document title" required>
+        </div>
+        <div class="field">
+            <label for="docCategory">Category</label>
+            <select id="docCategory">
+                <option value="General">General</option>
+                <option value="Personal Documents">Personal Documents</option>
+                <option value="HR Documents">HR Documents</option>
+                <option value="Financial Documents">Financial Documents</option>
+                <option value="Legal Documents">Legal Documents</option>
+                <option value="Project Documents">Project Documents</option>
+                <option value="Confidential">Confidential</option>
+                <option value="Other">Other</option>
+            </select>
+        </div>
+        <div class="field">
+            <label for="fileInput">Choose file</label>
+            <input type="file" id="fileInput" accept=".pdf,.docx,.txt,.png,.jpg,.jpeg" required>
+            <p class="muted">Supported: PDF, DOCX, TXT, PNG, JPG, JPEG. Maximum 10 MB.</p>
+        </div>
+        <button class="primary-btn" id="uploadButton" type="submit">Upload Document</button>
+        <p class="message" id="uploadMsg" role="status"></p>
+    </form>
+</section>
+
+<section class="workspace" id="docsSection">
+    <h3>Your Documents</h3>
+    <div class="field">
+        <label for="documentSearch">Search documents</label>
+        <input type="search" id="documentSearch" placeholder="Search title, file, category or owner" oninput="filterDocuments()">
+        <p class="muted" id="searchStatus"></p>
+    </div>
+    <button class="secondary-btn" type="button" onclick="fetchDocuments()">Refresh Documents</button>
+    <ul id="docList"></ul>
+</section>
+</main>
 </div>
 
 <script>
@@ -553,29 +199,23 @@ function showMessage(id, message, className = "") {
 
 async function readResponse(response) {
     const text = await response.text();
-
     try {
         return text ? JSON.parse(text) : {};
     } catch {
-        return { detail: text || "Unexpected server response." };
+        return {detail: text || "Unexpected server response."};
     }
 }
 
 function switchTab(tab) {
     const isLogin = tab === "login";
-
     document.getElementById("loginPanel").classList.toggle("active", isLogin);
     document.getElementById("registerPanel").classList.toggle("active", !isLogin);
     document.getElementById("loginTab").classList.toggle("active", isLogin);
     document.getElementById("registerTab").classList.toggle("active", !isLogin);
-
-    document.getElementById("formTitle").textContent =
-        isLogin ? "Sign In" : "Create Account";
-
-    document.getElementById("formSubtitle").textContent =
-        isLogin
-            ? "Sign in to securely access your documents."
-            : "Create your account to get started securely.";
+    document.getElementById("formTitle").textContent = isLogin ? "Sign In" : "Create Account";
+    document.getElementById("formSubtitle").textContent = isLogin
+        ? "Sign in to securely access your documents."
+        : "Create your account to get started securely.";
 }
 
 document.getElementById("registerForm").addEventListener("submit", async event => {
@@ -600,11 +240,7 @@ async function registerUser() {
     const button = document.getElementById("registerButton");
 
     if (username.length < 3 || password.length < 8) {
-        showMessage(
-            "registerMsg",
-            "Username must have at least 3 characters and password at least 8 characters.",
-            "error"
-        );
+        showMessage("registerMsg", "Username must have at least 3 characters and password at least 8 characters.", "error");
         return;
     }
 
@@ -619,28 +255,18 @@ async function registerUser() {
     try {
         const response = await fetch("/api/register", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, password, role })
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({username, password, role})
         });
 
         const data = await readResponse(response);
 
         if (!response.ok) {
-            showMessage(
-                "registerMsg",
-                typeof data.detail === "string"
-                    ? data.detail : "Registration failed.",
-                "error"
-            );
+            showMessage("registerMsg", typeof data.detail === "string" ? data.detail : "Registration failed.", "error");
             return;
         }
 
-        showMessage(
-            "registerMsg",
-            `Account created as ${data.role || role}. You can now sign in.`,
-            "success"
-        );
-
+        showMessage("registerMsg", `Account created as ${data.role || role}. You can now sign in.`, "success");
         document.getElementById("username").value = username;
         document.getElementById("password").value = "";
         document.getElementById("regPassword").value = "";
@@ -653,14 +279,11 @@ async function registerUser() {
     }
 }
 
+/* UPDATED: send JSON to match the LoginRequest model in main.py */
 async function login() {
     const username = document.getElementById("username").value.trim();
     const password = document.getElementById("password").value;
     const button = document.getElementById("loginButton");
-    const formData = new URLSearchParams();
-
-    formData.append("username", username);
-    formData.append("password", password);
 
     button.disabled = true;
     button.textContent = "Signing in...";
@@ -668,10 +291,8 @@ async function login() {
     try {
         const response = await fetch("/api/login", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded"
-            },
-            body: formData
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({username, password})
         });
 
         const data = await readResponse(response);
@@ -687,13 +308,11 @@ async function login() {
 
         document.getElementById("authArea").style.display = "none";
         document.getElementById("sessionSection").style.display = "block";
-
         document.getElementById("sessionMsg").textContent =
             `Signed in as ${currentUsername} (${currentRole}).`;
 
         document.getElementById("uploadSection").style.display =
             ["admin", "owner"].includes(currentRole) ? "block" : "none";
-
         document.getElementById("docsSection").style.display = "block";
 
         await fetchDocuments();
@@ -749,9 +368,7 @@ async function uploadDocument() {
         return;
     }
 
-    const allowed = /\.(pdf|docx|txt|png|jpe?g)$/i;
-
-    if (!allowed.test(file.name)) {
+    if (!/\.(pdf|docx|txt|png|jpe?g)$/i.test(file.name)) {
         showMessage("uploadMsg", "This file type is not supported.", "error");
         return;
     }
@@ -765,9 +382,10 @@ async function uploadDocument() {
     button.textContent = "Uploading...";
 
     try {
-        const response = await fetch("/api/upload", {
+        /* UPDATED: match the upload route in main.py */
+        const response = await fetch("/api/documents/upload", {
             method: "POST",
-            headers: { "Authorization": "Bearer " + authToken },
+            headers: {"Authorization": "Bearer " + authToken},
             body: formData
         });
 
@@ -800,7 +418,7 @@ async function fetchDocuments() {
 
     try {
         const response = await fetch("/api/documents", {
-            headers: { "Authorization": "Bearer " + authToken }
+            headers: {"Authorization": "Bearer " + authToken}
         });
 
         const data = await readResponse(response);
@@ -836,21 +454,15 @@ function renderDocuments() {
     const list = document.getElementById("docList");
     list.replaceChildren();
 
-    const query = document.getElementById("documentSearch").value
-        .trim().toLowerCase();
+    const query = document.getElementById("documentSearch").value.trim().toLowerCase();
+    const filtered = allDocuments.filter(doc =>
+        [doc.title, doc.filename, doc.category, doc.ownerName]
+            .join(" ").toLowerCase().includes(query)
+    );
 
-    const filtered = allDocuments.filter(doc => {
-        const searchable = [
-            doc.title, doc.filename, doc.category, doc.ownerName
-        ].join(" ").toLowerCase();
-
-        return searchable.includes(query);
-    });
-
-    document.getElementById("searchStatus").textContent =
-        query
-            ? `Showing ${filtered.length} of ${allDocuments.length} documents`
-            : `${allDocuments.length} document(s)`;
+    document.getElementById("searchStatus").textContent = query
+        ? `Showing ${filtered.length} of ${allDocuments.length} documents`
+        : `${allDocuments.length} document(s)`;
 
     filtered.forEach(doc => {
         const li = document.createElement("li");
@@ -874,15 +486,8 @@ function renderDocuments() {
         download.onclick = () => downloadDocument(doc.id, doc.filename);
         actions.appendChild(download);
 
-        /*
-          Admin can manage documents according to backend authorization.
-          Owner sees management controls for documents whose ownerName
-          matches the logged-in username.
-          Backend must independently enforce every permission.
-        */
         const isAdmin = currentRole === "admin";
-        const isOwnDocument =
-            currentRole === "owner" &&
+        const isOwnDocument = currentRole === "owner" &&
             String(doc.ownerName || "").toLowerCase() ===
             String(currentUsername || "").toLowerCase();
 
@@ -890,8 +495,7 @@ function renderDocuments() {
             const edit = document.createElement("button");
             edit.textContent = "Edit Details";
             edit.className = "edit-btn";
-            edit.onclick = () =>
-                editDocument(doc.id, doc.title, doc.category);
+            edit.onclick = () => editDocument(doc.id, doc.title, doc.category);
             actions.appendChild(edit);
 
             const del = document.createElement("button");
@@ -919,9 +523,7 @@ function renderDocuments() {
     if (filtered.length === 0) {
         const li = document.createElement("li");
         li.className = "muted";
-        li.textContent = query
-            ? "No documents match your search."
-            : "No documents available yet.";
+        li.textContent = query ? "No documents match your search." : "No documents available yet.";
         list.appendChild(li);
     }
 }
@@ -932,12 +534,9 @@ function filterDocuments() {
 
 async function downloadDocument(id, filename) {
     try {
-        const response = await fetch(
-            `/api/documents/${encodeURIComponent(id)}/download`,
-            {
-                headers: { "Authorization": "Bearer " + authToken }
-            }
-        );
+        const response = await fetch(`/api/documents/${encodeURIComponent(id)}/download`, {
+            headers: {"Authorization": "Bearer " + authToken}
+        });
 
         if (!response.ok) {
             const err = await readResponse(response);
@@ -948,13 +547,11 @@ async function downloadDocument(id, filename) {
         const blob = await response.blob();
         const objectUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
-
         a.href = objectUrl;
         a.download = filename;
         document.body.appendChild(a);
         a.click();
         a.remove();
-
         setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
     } catch {
         alert("Could not download file.");
@@ -974,23 +571,19 @@ async function editDocument(id, oldTitle, oldCategory) {
     }
 
     try {
-        const response = await fetch(
-            `/api/documents/${encodeURIComponent(id)}/update`,
-            {
-                method: "POST",
-                headers: {
-                    "Authorization": "Bearer " + authToken,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    title: title.trim(),
-                    category: category.trim() || "General"
-                })
-            }
-        );
+        const response = await fetch(`/api/documents/${encodeURIComponent(id)}/update`, {
+            method: "POST",
+            headers: {
+                "Authorization": "Bearer " + authToken,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                title: title.trim(),
+                category: category.trim() || "General"
+            })
+        });
 
         const data = await readResponse(response);
-
         if (!response.ok) {
             alert(data.detail || "Update failed.");
             return;
@@ -1004,21 +597,15 @@ async function editDocument(id, oldTitle, oldCategory) {
 }
 
 async function deleteDocument(id, title) {
-    if (!confirm(`Delete "${title}" permanently? This cannot be undone.`)) {
-        return;
-    }
+    if (!confirm(`Delete "${title}" permanently? This cannot be undone.`)) return;
 
     try {
-        const response = await fetch(
-            `/api/documents/${encodeURIComponent(id)}/delete`,
-            {
-                method: "POST",
-                headers: { "Authorization": "Bearer " + authToken }
-            }
-        );
+        const response = await fetch(`/api/documents/${encodeURIComponent(id)}/delete`, {
+            method: "POST",
+            headers: {"Authorization": "Bearer " + authToken}
+        });
 
         const data = await readResponse(response);
-
         if (!response.ok) {
             alert(data.detail || "Delete failed.");
             return;
@@ -1039,7 +626,6 @@ async function changePermission(id, action) {
     );
 
     if (username === null) return;
-
     if (!username.trim()) {
         alert("Username cannot be blank.");
         return;
@@ -1052,7 +638,6 @@ async function changePermission(id, action) {
         if (choice === null) return;
 
         accessType = choice.trim().toLowerCase();
-
         if (!["read", "edit"].includes(accessType)) {
             alert("Access type must be read or edit.");
             return;
@@ -1060,35 +645,25 @@ async function changePermission(id, action) {
     }
 
     try {
-        const response = await fetch(
-            `/api/documents/${encodeURIComponent(id)}/${action}`,
-            {
-                method: "POST",
-                headers: {
-                    "Authorization": "Bearer " + authToken,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    username: username.trim(),
-                    access_type: accessType
-                })
-            }
-        );
+        const response = await fetch(`/api/documents/${encodeURIComponent(id)}/${action}`, {
+            method: "POST",
+            headers: {
+                "Authorization": "Bearer " + authToken,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                username: username.trim(),
+                access_type: accessType
+            })
+        });
 
         const data = await readResponse(response);
-
         if (!response.ok) {
             alert(data.detail || `Could not ${action} permission.`);
             return;
         }
 
-        alert(
-            data.message ||
-            (action === "grant"
-                ? "Permission granted."
-                : "Permission revoked.")
-        );
-
+        alert(data.message || (action === "grant" ? "Permission granted." : "Permission revoked."));
         await fetchDocuments();
     } catch {
         alert("Could not connect to the server.");
