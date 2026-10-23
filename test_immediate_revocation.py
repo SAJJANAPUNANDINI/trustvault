@@ -1,4 +1,3 @@
-
 import os
 import uuid
 
@@ -26,7 +25,7 @@ def register_and_login(username, role):
 
     login = client.post(
         "/api/login",
-        data={
+        json={
             "username": username,
             "password": "TestPass123!"
         }
@@ -48,7 +47,7 @@ def test_revoked_permission_blocks_download_immediately():
     viewer_headers = register_and_login(viewer_name, "viewer")
 
     upload = client.post(
-        "/api/upload",
+        "/api/documents/upload",
         headers=owner_headers,
         data={
             "title": f"RevocationTest_{unique}",

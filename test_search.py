@@ -1,4 +1,3 @@
-
 import os
 import uuid
 
@@ -26,7 +25,7 @@ def register_and_login(username, role):
 
     login = client.post(
         "/api/login",
-        data={
+        json={
             "username": username,
             "password": "TestPass123!"
         }
@@ -46,7 +45,7 @@ def test_search_documents_by_title_category_and_owner():
 
     # Upload a document with a unique title and category.
     upload = client.post(
-        "/api/upload",
+        "/api/documents/upload",
         headers=headers,
         data={
             "title": f"ProjectReport_{unique}",

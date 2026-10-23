@@ -1,4 +1,3 @@
-
 import os
 import uuid
 
@@ -26,7 +25,7 @@ def register_and_login(username, role):
 
     login = client.post(
         "/api/login",
-        data={
+        json={
             "username": username,
             "password": "TestPass123!"
         }
@@ -50,7 +49,7 @@ def test_unauthorized_user_cannot_download_document():
     )
 
     upload = client.post(
-        "/api/upload",
+        "/api/documents/upload",
         headers=owner_headers,
         data={
             "title": f"PrivateDocument_{unique}",

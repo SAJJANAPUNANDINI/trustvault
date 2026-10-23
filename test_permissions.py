@@ -1,4 +1,3 @@
-
 import os
 import uuid
 
@@ -29,7 +28,7 @@ def register_and_login(username, role):
     # Login using form data.
     login_response = client.post(
         "/api/login",
-        data={
+        json={
             "username": username,
             "password": "TestPass123!"
         }
@@ -51,7 +50,7 @@ def test_grant_and_revoke_permission():
 
     # 2. Owner uploads a document.
     upload_response = client.post(
-        "/api/upload",
+        "/api/documents/upload",
         headers=owner_headers,
         data={
             "title": "Permission Test Document",

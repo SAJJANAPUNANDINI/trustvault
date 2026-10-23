@@ -1,591 +1,1007 @@
-from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from fastapi.responses import FileResponse
+
+import os
+import re
+import uuid
+import hmac
+import hashlib
+import sqlite3
+from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import jwt
+from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from passlib.context import CryptContext
-from jose import JWTError, jwt
-from pathlib import Path
-from uuid import uuid4
-import sqlite3
-import os
-import hashlib
-import hmac
-import json
 
-app = FastAPI(title="TrustVault API", version="1.2")
 
-# Same-origin deployment is recommended. Set trusted origins explicitly if needed.
-_allowed_origins = os.environ.get(
-    "TRUSTVAULT_ALLOWED_ORIGINS",
-    "http://127.0.0.1:8000,http://localhost:8000"
-)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[origin.strip() for origin in _allowed_origins.split(",") if origin.strip()],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE"],
-    allow_headers=["Authorization", "Content-Type"],
-)
+# --------------------------------------------------
+# CONFIGURATION
+# --------------------------------------------------
 
-SECRET_KEY = os.environ.get("TRUSTVAULT_SECRET_KEY", "")
-if len(SECRET_KEY) < 32:
-    raise RuntimeError(
-        "Set TRUSTVAULT_SECRET_KEY to a random secret of at least 32 characters."
-    )
-
-ALGORITHM = "HS256"
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "database.sqlite"
 UPLOAD_DIR = BASE_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+SECRET_KEY = os.getenv("TRUSTVAULT_SECRET_KEY", "")
+if len(SECRET_KEY) < 32:
+    raise RuntimeError(
+        "Set TRUSTVAULT_SECRET_KEY to a secret of at least 32 characters."
+    )
+
+ALGORITHM = "HS256"
+TOKEN_EXPIRE_MINUTES = 60
+
+MAX_FILE_SIZE = 10 * 1024 * 1024
+ALLOWED_EXTENSIONS = {
+    ".pdf", ".docx", ".txt", ".png", ".jpg", ".jpeg"
+}
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
-ALLOWED_EXTENSIONS = {".pdf", ".docx", ".txt", ".png", ".jpg", ".jpeg"}
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+
+app = FastAPI(title="TrustVault API", version="1.3")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
-def db_connect():
-    return sqlite3.connect(DB_PATH, timeout=30.0)
+# --------------------------------------------------
+# DATABASE
+# --------------------------------------------------
+
+def get_db():
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
 
 
 def init_db():
-    with db_connect() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL,
-                role TEXT NOT NULL DEFAULT 'viewer'
-                    CHECK(role IN ('admin', 'owner', 'viewer'))
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS documents (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                filename TEXT NOT NULL,
-                owner_id INTEGER NOT NULL,
-                category TEXT DEFAULT 'General',
-                upload_date DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS permissions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                document_id INTEGER NOT NULL,
-                user_id INTEGER NOT NULL,
-                access_type TEXT NOT NULL CHECK(access_type IN ('read', 'edit')),
-                UNIQUE(document_id, user_id)
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS audit_logs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER,
-                action TEXT NOT NULL,
-                details TEXT NOT NULL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+    with get_db() as conn:
+        conn.executescript("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('admin', 'owner', 'viewer')),
+            created_at TEXT NOT NULL
+        );
 
-        # Safe migration for databases created by the earlier version.
-        columns = {row[1] for row in cursor.execute("PRAGMA table_info(documents)").fetchall()}
-        if "storage_name" not in columns:
-            cursor.execute("ALTER TABLE documents ADD COLUMN storage_name TEXT")
-            rows = cursor.execute("SELECT id, filename FROM documents").fetchall()
-            for doc_id, filename in rows:
-                safe_name = Path(filename or "").name
-                if safe_name and safe_name == filename and safe_name not in {".", ".."} and "/" not in safe_name and "\\" not in safe_name:
-                    cursor.execute(
-                        "UPDATE documents SET storage_name = ? WHERE id = ?",
-                        (safe_name, doc_id)
-                    )
-                else:
-                    cursor.execute("UPDATE documents SET storage_name = NULL WHERE id = ?", (doc_id,))
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            owner_id INTEGER NOT NULL,
+            category TEXT DEFAULT '',
+            upload_date TEXT NOT NULL,
+            storage_name TEXT NOT NULL UNIQUE,
+            FOREIGN KEY(owner_id) REFERENCES users(id)
+        );
 
-        # Older databases may contain duplicate permission rows; keep the latest.
-        cursor.execute("""
-            DELETE FROM permissions
-            WHERE id NOT IN (
-                SELECT MAX(id) FROM permissions GROUP BY document_id, user_id
-            )
+        CREATE TABLE IF NOT EXISTS permissions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            access_type TEXT NOT NULL CHECK(access_type IN ('read', 'edit')),
+            UNIQUE(document_id, user_id),
+            FOREIGN KEY(document_id) REFERENCES documents(id) ON DELETE CASCADE,
+            FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            action TEXT NOT NULL,
+            document_id INTEGER,
+            details TEXT DEFAULT '',
+            timestamp TEXT NOT NULL,
+            previous_hash TEXT NOT NULL,
+            entry_hash TEXT NOT NULL
+        );
         """)
-        cursor.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_permissions_document_user
-            ON permissions(document_id, user_id)
-        """)
-
-        # Add a hash column for tamper-evident audit chaining.
-        audit_columns = {row[1] for row in cursor.execute("PRAGMA table_info(audit_logs)").fetchall()}
-        if "entry_hash" not in audit_columns:
-            cursor.execute("ALTER TABLE audit_logs ADD COLUMN entry_hash TEXT")
-            # Existing historical rows are chained during migration; this cannot prove
-            # the pre-migration history was not already altered.
-            previous_hash = "GENESIS"
-            rows = cursor.execute(
-                "SELECT id, user_id, action, details, timestamp FROM audit_logs ORDER BY id"
-            ).fetchall()
-            for row in rows:
-                entry_hash = calculate_audit_hash(previous_hash, row)
-                cursor.execute(
-                    "UPDATE audit_logs SET entry_hash = ? WHERE id = ?",
-                    (entry_hash, row[0])
-                )
-                previous_hash = entry_hash
-
-        conn.commit()
-
-
-def calculate_audit_hash(previous_hash, row):
-    # HMAC uses the same server secret as a demo-friendly tamper-evident chain.
-    payload = json.dumps(
-        {
-            "previous_hash": previous_hash,
-            "id": row[0],
-            "user_id": row[1],
-            "action": row[2],
-            "details": row[3],
-            "timestamp": row[4],
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hmac.new(SECRET_KEY.encode("utf-8"), payload, hashlib.sha256).hexdigest()
 
 
 init_db()
 
 
-@app.get("/", include_in_schema=False)
-def serve_frontend():
-    index_path = BASE_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(index_path)
-    return {"message": "index.html not found"}
+# --------------------------------------------------
+# REQUEST MODELS
+# --------------------------------------------------
 
-
-def get_current_user(token: str = Depends(oauth2_scheme)):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        user_id = payload.get("id")
-        if not username or not isinstance(user_id, int):
-            raise credentials_exception
-
-        # Reload role each request so role changes take effect immediately.
-        with db_connect() as conn:
-            row = conn.execute(
-                "SELECT id, username, role FROM users WHERE id = ?",
-                (user_id,)
-            ).fetchone()
-        if not row or row[1] != username:
-            raise credentials_exception
-        return {"id": row[0], "username": row[1], "role": row[2]}
-    except JWTError:
-        raise credentials_exception
-
-
-def log_audit(user_id: int | None, action: str, details: str):
-    with db_connect() as conn:
-        cursor = conn.cursor()
-        last = cursor.execute(
-            "SELECT entry_hash FROM audit_logs ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        previous_hash = last[0] if last and last[0] else "GENESIS"
-        timestamp = cursor.execute("SELECT CURRENT_TIMESTAMP").fetchone()[0]
-        # Insert placeholder row to obtain its id, then calculate its hash.
-        cursor.execute(
-            "INSERT INTO audit_logs (user_id, action, details, timestamp, entry_hash) VALUES (?, ?, ?, ?, NULL)",
-            (user_id, action, details, timestamp)
-        )
-        row_id = cursor.lastrowid
-        row = (row_id, user_id, action, details, timestamp)
-        entry_hash = calculate_audit_hash(previous_hash, row)
-        cursor.execute("UPDATE audit_logs SET entry_hash = ? WHERE id = ?", (entry_hash, row_id))
-        conn.commit()
-
-
-class UserRegister(BaseModel):
+class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=50)
     password: str = Field(min_length=8, max_length=128)
-    # Public registration may create owner/viewer only; never self-assign admin.
-    role: str = Field(default="viewer", pattern="^(viewer|owner)$")
+    role: str = Field(pattern=r"^(viewer|owner)$")
 
 
-class PermissionRequest(BaseModel):
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class UpdateDocumentRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    category: Optional[str] = Field(default=None, max_length=100)
+
+
+class GrantPermissionRequest(BaseModel):
     username: str = Field(min_length=3, max_length=50)
-    access_type: str = Field(default="read", pattern="^(read|edit)$")
+    access_type: str = Field(pattern=r"^(read|edit)$")
 
 
-class DocumentUpdate(BaseModel):
-    title: str = Field(min_length=1, max_length=200)
-    category: str = Field(default="General", max_length=100)
+# --------------------------------------------------
+# AUDIT LOGGING
+# --------------------------------------------------
 
+def audit_hash(previous_hash, username, action, document_id, details, timestamp):
+    payload = "|".join([
+        str(previous_hash),
+        str(username),
+        str(action),
+        str(document_id),
+        str(details),
+        str(timestamp)
+    ])
+    return hmac.new(
+        SECRET_KEY.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256
+    ).hexdigest()
+
+
+def log_action(username, action, document_id=None, details=""):
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    with get_db() as conn:
+        previous = conn.execute(
+            "SELECT entry_hash FROM audit_logs ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+
+        previous_hash = previous["entry_hash"] if previous else "GENESIS"
+
+        entry_hash = audit_hash(
+            previous_hash, username, action, document_id, details, timestamp
+        )
+
+        conn.execute("""
+            INSERT INTO audit_logs
+            (username, action, document_id, details, timestamp,
+             previous_hash, entry_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            username, action, document_id, details,
+            timestamp, previous_hash, entry_hash
+        ))
+
+
+# --------------------------------------------------
+# AUTHENTICATION HELPERS
+# --------------------------------------------------
+
+def create_token(user):
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": user["username"],
+        "id": user["id"],
+        "iat": now,
+        "exp": now + timedelta(minutes=TOKEN_EXPIRE_MINUTES)
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def get_current_user(authorization: Optional[str] = Header(default=None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    token = authorization.split(" ", 1)[1].strip()
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    with get_db() as conn:
+        user = conn.execute(
+            "SELECT id, username, role FROM users WHERE id = ?",
+            (payload.get("id"),)
+        ).fetchone()
+
+    if not user or user["username"] != payload.get("sub"):
+        raise HTTPException(status_code=401, detail="User no longer exists")
+
+    return dict(user)
+
+
+def require_admin(user):
+    if user["role"] != "admin":
+        log_action(
+            user["username"],
+            "DENIED_ADMIN_ACTION",
+            details="Admin role required"
+        )
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
+def get_document(document_id):
+    with get_db() as conn:
+        document = conn.execute(
+            "SELECT * FROM documents WHERE id = ?", (document_id,)
+        ).fetchone()
+
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return dict(document)
+
+
+def permission_for(document_id, user_id):
+    with get_db() as conn:
+        row = conn.execute("""
+            SELECT access_type FROM permissions
+            WHERE document_id = ? AND user_id = ?
+        """, (document_id, user_id)).fetchone()
+
+    return row["access_type"] if row else None
+
+
+def can_read(user, document):
+    if user["role"] == "admin":
+        return True
+    if document["owner_id"] == user["id"]:
+        return True
+    return permission_for(document["id"], user["id"]) in ("read", "edit")
+
+
+def can_edit(user, document):
+    if user["role"] == "admin":
+        return True
+    if document["owner_id"] == user["id"]:
+        return True
+    return permission_for(document["id"], user["id"]) == "edit"
+
+
+def can_manage_permissions(user, document):
+    return user["role"] == "admin" or document["owner_id"] == user["id"]
+
+
+def safe_storage_path(storage_name):
+    path = (UPLOAD_DIR / storage_name).resolve()
+    if path.parent != UPLOAD_DIR.resolve():
+        raise HTTPException(status_code=400, detail="Invalid storage path")
+    return path
+
+
+# --------------------------------------------------
+# BASIC ENDPOINTS
+# --------------------------------------------------
+
+@app.get("/")
+def home():
+    return {
+        "message": "TrustVault API is running",
+        "docs": "/docs"
+    }
+
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
+
+
+# --------------------------------------------------
+# REGISTER AND LOGIN
+# --------------------------------------------------
 
 @app.post("/api/register")
-def register(user: UserRegister):
-    username = user.username.strip()
-    if not username:
-        raise HTTPException(status_code=400, detail="Username cannot be blank")
+def register(request: RegisterRequest):
+    username = request.username.strip()
 
-    hashed_password = pwd_context.hash(user.password)
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,50}", username):
+        raise HTTPException(
+            status_code=400,
+            detail="Username must contain 3-50 letters, numbers, dots, underscores or hyphens"
+        )
+
+    password_hash = pwd_context.hash(request.password)
+
     try:
-        with db_connect() as conn:
-            cursor = conn.cursor()
-            assigned_role = user.role
-            cursor.execute(
-                "INSERT INTO users (username, password, role) VALUES (?, ?, ?)",
-                (username, hashed_password, assigned_role)
-            )
-            user_id = cursor.lastrowid
-            conn.commit()
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO users (username, password_hash, role, created_at)
+                VALUES (?, ?, ?, ?)
+            """, (
+                username,
+                password_hash,
+                request.role,
+                datetime.now(timezone.utc).isoformat()
+            ))
     except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="Username already registered")
+        raise HTTPException(status_code=409, detail="Username already exists")
 
-    log_audit(user_id, "REGISTER", f"New {assigned_role} account registered: {username}")
-    return {"message": "User registered successfully!", "role": assigned_role}
+    log_action(username, "REGISTER", details=f"Registered as {request.role}")
+    return {"message": "Registration successful", "role": request.role}
 
 
 @app.post("/api/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends()):
-    with db_connect() as conn:
-        db_user = conn.execute(
-            "SELECT id, username, password, role FROM users WHERE username = ?",
-            (form_data.username,)
-        ).fetchone()
+def login(request: LoginRequest):
+    username = request.username.strip()
 
-    if not db_user or not pwd_context.verify(form_data.password, db_user[2]):
-        log_audit(None, "LOGIN_FAILED", f"Failed login attempt for username: {form_data.username[:50]}")
+    with get_db() as conn:
+        user = conn.execute("""
+            SELECT id, username, password_hash, role
+            FROM users WHERE username = ?
+        """, (username,)).fetchone()
+
+    if not user or not pwd_context.verify(request.password, user["password_hash"]):
+        log_action(username, "LOGIN_FAILED", details="Invalid username or password")
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
-    token_data = {"sub": db_user[1], "id": db_user[0]}
-    token = jwt.encode(token_data, SECRET_KEY, algorithm=ALGORITHM)
-    log_audit(db_user[0], "LOGIN", f"User {db_user[1]} logged in successfully")
-    return {"access_token": token, "token_type": "bearer", "role": db_user[3], "username": db_user[1]}
+    token = create_token(user)
+    log_action(username, "LOGIN")
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user["role"],
+        "username": user["username"],
+        "user_id": user["id"]
+    }
 
 
-@app.post("/api/upload")
-def upload_document(
-    title: str = Form(...),
-    category: str = Form("General"),
+# --------------------------------------------------
+# DOCUMENT UPLOAD
+# --------------------------------------------------
+
+@app.post("/api/documents/upload")
+async def upload_document(
     file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user),
+    title: str = Form(...),
+    category: str = Form(""),
+    user=None,
+    authorization: Optional[str] = Header(default=None)
 ):
-    if current_user["role"] not in {"admin", "owner"}:
-        log_audit(current_user["id"], "UPLOAD_DENIED", "Unauthorized user attempted to upload a document")
+    user = get_current_user(authorization)
+
+    if user["role"] not in ("admin", "owner"):
+        log_action(user["username"], "DENIED_UPLOAD", details="Role cannot upload")
         raise HTTPException(
             status_code=403,
-            detail="Only admins and owners can upload documents"
+            detail="Only owners and admins can upload"
         )
 
-    original_name = Path(file.filename or "").name
-    ext = Path(original_name).suffix.lower()
-    if not original_name or original_name in {".", ".."}:
-        raise HTTPException(status_code=400, detail="A valid filename is required")
-    if ext not in ALLOWED_EXTENSIONS:
+    clean_title = title.strip()
+    if not clean_title or len(clean_title) > 200:
         raise HTTPException(
             status_code=400,
-            detail="Invalid file type. Allowed: PDF, DOCX, TXT, PNG, JPG, JPEG."
+            detail="Title must be 1-200 characters"
         )
-    if not title.strip():
-        raise HTTPException(status_code=400, detail="Document title cannot be blank")
 
-    storage_name = f"{uuid4().hex}{ext}"
-    file_path = (UPLOAD_DIR / storage_name).resolve()
-    if file_path.parent != UPLOAD_DIR.resolve():
-        raise HTTPException(status_code=400, detail="Invalid file path")
+    extension = Path(file.filename or "").suffix.lower()
+    if extension not in ALLOWED_EXTENSIONS:
+        log_action(
+            user["username"],
+            "UPLOAD_REJECTED",
+            details="Unsupported file extension"
+        )
+        raise HTTPException(status_code=400, detail="File type not allowed")
+
+    storage_name = f"{uuid.uuid4().hex}{extension}"
+    destination = safe_storage_path(storage_name)
 
     size = 0
     try:
-        with file_path.open("xb") as output:
+        with destination.open("wb") as output:
             while True:
-                chunk = file.file.read(1024 * 1024)
+                chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
                 size += len(chunk)
-                if size > MAX_UPLOAD_BYTES:
+
+                if size > MAX_FILE_SIZE:
                     output.close()
-                    file_path.unlink(missing_ok=True)
-                    raise HTTPException(status_code=413, detail="File exceeds 10 MB limit")
+                    destination.unlink(missing_ok=True)
+                    log_action(
+                        user["username"],
+                        "UPLOAD_REJECTED",
+                        details="File exceeds size limit"
+                    )
+                    raise HTTPException(
+                        status_code=413,
+                        detail="Maximum file size is 10 MB"
+                    )
+
                 output.write(chunk)
-
-        with db_connect() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """INSERT INTO documents (title, filename, owner_id, category, storage_name)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (title.strip(), original_name, current_user["id"], category.strip() or "General", storage_name)
-            )
-            doc_id = cursor.lastrowid
-            conn.commit()
-    except Exception:
-        file_path.unlink(missing_ok=True)
-        raise
     finally:
-        file.file.close()
+        await file.close()
 
-    log_audit(current_user["id"], "UPLOAD", f"Uploaded document id={doc_id}, title={title.strip()}")
-    return {"message": "Document uploaded successfully!", "filename": original_name, "document_id": doc_id}
+    upload_date = datetime.now(timezone.utc).isoformat()
 
+    try:
+        with get_db() as conn:
+            cursor = conn.execute("""
+                INSERT INTO documents
+                (title, filename, owner_id, category, upload_date, storage_name)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                clean_title,
+                Path(file.filename or "uploaded_file").name,
+                user["id"],
+                category.strip()[:100],
+                upload_date,
+                storage_name
+            ))
+            document_id = cursor.lastrowid
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+
+    log_action(
+        user["username"],
+        "UPLOAD",
+        document_id,
+        f"File: {Path(file.filename or '').name}"
+    )
+    return {"message": "Upload successful", "document_id": document_id}
+
+
+# --------------------------------------------------
+# LIST AND SEARCH DOCUMENTS
+# --------------------------------------------------
 
 @app.get("/api/documents")
-def get_documents(
-    search: str | None = None,
-    owner: str | None = None,
-    category: str | None = None,
-    date: str | None = None,
-    current_user: dict = Depends(get_current_user),
+def list_documents(
+    search: Optional[str] = Query(default=None, max_length=200),
+    owner: Optional[str] = Query(default=None, max_length=50),
+    category: Optional[str] = Query(default=None, max_length=100),
+    date: Optional[str] = Query(default=None, max_length=30),
+    authorization: Optional[str] = Header(default=None)
 ):
-    with db_connect() as conn:
-        query = """
-            SELECT DISTINCT d.id, d.title, d.filename, d.owner_id, d.category, d.upload_date, u.username
+    user = get_current_user(authorization)
+
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT d.id, d.title, d.filename, d.owner_id, d.category,
+                   d.upload_date, u.username AS owner_name
             FROM documents d
-            JOIN users u ON d.owner_id = u.id
-            LEFT JOIN permissions p ON d.id = p.document_id
-            WHERE (
-                d.owner_id = ?
-                OR ? = 'admin'
-                OR (p.user_id = ? AND p.access_type IN ('read', 'edit'))
-            )
-        """
-        params = [current_user["id"], current_user["role"], current_user["id"]]
-        if search:
-            query += " AND (d.title LIKE ? OR d.filename LIKE ?)"
-            params.extend([f"%{search}%", f"%{search}%"])
-        if owner:
-            query += " AND u.username LIKE ?"
-            params.append(f"%{owner}%")
-        if category:
-            query += " AND d.category LIKE ?"
-            params.append(f"%{category}%")
-        if date:
-            query += " AND DATE(d.upload_date) = ?"
-            params.append(date)
-        query += " ORDER BY d.upload_date DESC"
-        docs = conn.execute(query, params).fetchall()
-    return {"documents": docs}
+            JOIN users u ON u.id = d.owner_id
+            ORDER BY d.id DESC
+        """).fetchall()
+
+    results = []
+
+    for row in rows:
+        document = dict(row)
+
+        if not can_read(user, document):
+            continue
+
+        if search and search.casefold() not in (
+            document["title"] + " " +
+            document["filename"] + " " +
+            document["category"] + " " +
+            document["owner_name"]
+        ).casefold():
+            continue
+
+        if owner and owner.casefold() not in document["owner_name"].casefold():
+            continue
+
+        if category and category.casefold() not in (
+            document["category"] or ""
+        ).casefold():
+            continue
+
+        if date and not document["upload_date"].startswith(date):
+            continue
+
+        results.append([
+            document["id"],
+            document["title"],
+            document["filename"],
+            document["owner_id"],
+            document["category"],
+            document["upload_date"],
+            document["owner_name"]
+        ])
+
+    log_action(
+        user["username"],
+        "LIST_DOCUMENTS",
+        details=f"Returned {len(results)} documents"
+    )
+    return {"documents": results}
 
 
-@app.get("/api/documents/{doc_id}/download")
-def download_document(doc_id: int, current_user: dict = Depends(get_current_user)):
-    with db_connect() as conn:
-        doc = conn.execute(
-            "SELECT id, title, filename, owner_id, storage_name FROM documents WHERE id = ?",
-            (doc_id,)
-        ).fetchone()
-        if not doc:
-            log_audit(current_user["id"], "DOWNLOAD_DENIED", f"Document id={doc_id} does not exist")
-            raise HTTPException(status_code=404, detail="Document not found")
+# --------------------------------------------------
+# DOWNLOAD DOCUMENT
+# --------------------------------------------------
 
-        actual_doc_id, title, original_name, owner_id, storage_name = doc
-        is_owner_or_admin = current_user["role"] == "admin" or owner_id == current_user["id"]
-        access_type = None
-        if not is_owner_or_admin:
-            permission = conn.execute(
-                "SELECT access_type FROM permissions WHERE document_id = ? AND user_id = ?",
-                (actual_doc_id, current_user["id"])
-            ).fetchone()
-            access_type = permission[0] if permission else None
-
-    if not is_owner_or_admin and access_type not in {"read", "edit"}:
-        log_audit(current_user["id"], "DOWNLOAD_DENIED", f"Denied download for document id={doc_id}")
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    if not storage_name or Path(storage_name).name != storage_name or storage_name in {".", ".."}:
-        log_audit(current_user["id"], "DOWNLOAD_DENIED", f"Unsafe storage path for document id={doc_id}")
-        raise HTTPException(status_code=404, detail="Stored file is unavailable")
-
-    file_path = (UPLOAD_DIR / storage_name).resolve()
-    if file_path.parent != UPLOAD_DIR.resolve() or not file_path.is_file():
-        raise HTTPException(status_code=404, detail="File not found on server")
-
-    log_audit(current_user["id"], "DOWNLOAD", f"Downloaded document id={doc_id}")
-    return FileResponse(file_path, filename=original_name)
-
-
-@app.post("/api/documents/{doc_id}/update")
-def update_document(
-    doc_id: int,
-    update: DocumentUpdate,
-    current_user: dict = Depends(get_current_user),
+@app.get("/api/documents/{document_id}/download")
+def download_document(
+    document_id: int,
+    authorization: Optional[str] = Header(default=None)
 ):
-    title = update.title.strip()
-    category = update.category.strip() or "General"
-    if not title:
-        raise HTTPException(status_code=400, detail="Document title cannot be blank")
+    user = get_current_user(authorization)
 
-    with db_connect() as conn:
-        doc = conn.execute(
-            "SELECT id, owner_id FROM documents WHERE id = ?", (doc_id,)
-        ).fetchone()
-        if not doc:
-            raise HTTPException(status_code=404, detail="Document not found")
-
-        owner_id = doc[1]
-        permission = conn.execute(
-            "SELECT access_type FROM permissions WHERE document_id = ? AND user_id = ?",
-            (doc_id, current_user["id"])
-        ).fetchone()
-
-        can_edit = (
-            current_user["role"] == "admin"
-            or owner_id == current_user["id"]
-            or (permission is not None and permission[0] == "edit")
+    try:
+        document = get_document(document_id)
+    except HTTPException:
+        log_action(
+            user["username"],
+            "DOWNLOAD_DENIED",
+            document_id,
+            "Document not found"
         )
-        if not can_edit:
-            log_audit(
-                current_user["id"],
-                "UPDATE_DENIED",
-                f"Denied metadata update for document id={doc_id}"
-            )
-            raise HTTPException(status_code=403, detail="Edit permission required")
+        raise
 
-        conn.execute(
-            "UPDATE documents SET title = ?, category = ? WHERE id = ?",
-            (title, category, doc_id)
+    if not can_read(user, document):
+        with get_db() as conn:
+            revoked = conn.execute("""
+                SELECT 1
+                FROM audit_logs
+                WHERE action = 'REVOKE'
+                  AND document_id = ?
+                  AND details LIKE ?
+                ORDER BY id DESC
+                LIMIT 1
+            """, (
+                document_id,
+                f"user={user['username']}%"
+            )).fetchone()
+
+        detail = (
+            "Access denied"
+            if revoked
+            else "You do not have permission to read this document"
         )
-        conn.commit()
 
-    log_audit(current_user["id"], "UPDATE_DOCUMENT", f"Updated details for document id={doc_id}")
+        log_action(
+            user["username"],
+            "DOWNLOAD_DENIED",
+            document_id,
+            f"document id={document_id}; No read permission"
+        )
+
+        raise HTTPException(status_code=403, detail=detail)
+
+    path = safe_storage_path(document["storage_name"])
+    if not path.is_file():
+        log_action(
+            user["username"],
+            "DOWNLOAD_FAILED",
+            document_id,
+            "Stored file missing"
+        )
+        raise HTTPException(status_code=404, detail="Stored file not found")
+
+    log_action(user["username"], "DOWNLOAD", document_id)
+
+    return FileResponse(
+        path=str(path),
+        filename=document["filename"],
+        media_type="application/octet-stream"
+    )
+
+
+# --------------------------------------------------
+# UPDATE DOCUMENT METADATA
+# --------------------------------------------------
+
+@app.post("/api/documents/{document_id}/update")
+def update_document(
+    document_id: int,
+    request: UpdateDocumentRequest,
+    authorization: Optional[str] = Header(default=None)
+):
+    user = get_current_user(authorization)
+
+    try:
+        document = get_document(document_id)
+    except HTTPException:
+        log_action(
+            user["username"],
+            "UPDATE_DENIED",
+            document_id,
+            "Document not found"
+        )
+        raise
+
+    if not can_edit(user, document):
+        log_action(
+            user["username"],
+            "UPDATE_DENIED",
+            document_id,
+            "No edit permission"
+        )
+        raise HTTPException(status_code=403, detail="Edit permission required")
+
+    title = request.title.strip() if request.title is not None else document["title"]
+    category = (
+        request.category.strip()
+        if request.category is not None
+        else document["category"]
+    )
+
+    if not title or len(title) > 200:
+        raise HTTPException(
+            status_code=400,
+            detail="Title must be 1-200 characters"
+        )
+
+    if len(category or "") > 100:
+        raise HTTPException(
+            status_code=400,
+            detail="Category must be at most 100 characters"
+        )
+
+    with get_db() as conn:
+        conn.execute("""
+            UPDATE documents SET title = ?, category = ? WHERE id = ?
+        """, (title, category, document_id))
+
+    log_action(
+        user["username"],
+        "UPDATE",
+        document_id,
+        f"title={title}; category={category}"
+    )
+
     return {
-        "message": "Document details updated successfully",
-        "document_id": doc_id,
+        "message": "Document updated successfully",
+        "id": document_id,
         "title": title,
         "category": category
     }
 
 
-@app.post("/api/documents/{doc_id}/delete")
-def delete_document(doc_id: int, current_user: dict = Depends(get_current_user)):
-    with db_connect() as conn:
-        doc = conn.execute(
-            "SELECT id, title, storage_name, owner_id FROM documents WHERE id = ?",
-            (doc_id,)
-        ).fetchone()
-        if not doc:
-            raise HTTPException(status_code=404, detail="Document not found")
+# --------------------------------------------------
+# DELETE DOCUMENT
+# --------------------------------------------------
 
-        _, title, storage_name, owner_id = doc
-        # Admins and owners may delete; edit permission alone does not grant delete.
-        if current_user["role"] != "admin" and owner_id != current_user["id"]:
-            log_audit(
-                current_user["id"],
-                "DELETE_DENIED",
-                f"Denied delete attempt for document id={doc_id}"
+@app.post("/api/documents/{document_id}/delete")
+def delete_document(
+    document_id: int,
+    authorization: Optional[str] = Header(default=None)
+):
+    user = get_current_user(authorization)
+
+    try:
+        document = get_document(document_id)
+    except HTTPException:
+        log_action(
+            user["username"],
+            "DELETE_DENIED",
+            document_id,
+            "Document not found"
+        )
+        raise
+
+    if not can_manage_permissions(user, document):
+        log_action(
+            user["username"],
+            "DELETE_DENIED",
+            document_id,
+            "Not admin or document owner"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Only the document owner or admin can delete"
+        )
+
+    path = safe_storage_path(document["storage_name"])
+
+    with get_db() as conn:
+        conn.execute("DELETE FROM permissions WHERE document_id = ?", (document_id,))
+        conn.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+
+    path.unlink(missing_ok=True)
+
+    log_action(
+        user["username"],
+        "DELETE",
+        document_id,
+        f"Deleted {document['filename']}"
+    )
+
+    return {"message": "Document deleted successfully"}
+
+
+# --------------------------------------------------
+# GRANT PERMISSION
+# --------------------------------------------------
+
+@app.post("/api/documents/{document_id}/grant")
+def grant_permission(
+    document_id: int,
+    request: GrantPermissionRequest,
+    authorization: Optional[str] = Header(default=None)
+):
+    user = get_current_user(authorization)
+
+    try:
+        document = get_document(document_id)
+    except HTTPException:
+        log_action(
+            user["username"],
+            "GRANT_DENIED",
+            document_id,
+            "Document not found"
+        )
+        raise
+
+    if not can_manage_permissions(user, document):
+        log_action(
+            user["username"],
+            "GRANT_DENIED",
+            document_id,
+            "Not admin or document owner"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Only the document owner or admin can grant access"
+        )
+
+    with get_db() as conn:
+        target = conn.execute(
+            "SELECT id, username FROM users WHERE username = ?",
+            (request.username.strip(),)
+        ).fetchone()
+
+        if not target:
+            log_action(
+                user["username"],
+                "GRANT_FAILED",
+                document_id,
+                "Target user not found"
             )
-            raise HTTPException(status_code=403, detail="Only the document owner or admin can delete")
-
-        conn.execute("DELETE FROM permissions WHERE document_id = ?", (doc_id,))
-        conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
-        conn.commit()
-
-    if storage_name and Path(storage_name).name == storage_name and storage_name not in {".", ".."}:
-        file_path = (UPLOAD_DIR / storage_name).resolve()
-        if file_path.parent == UPLOAD_DIR.resolve() and file_path.is_file():
-            file_path.unlink()
-
-    log_audit(current_user["id"], "DELETE_DOCUMENT", f"Deleted document id={doc_id}, title={title}")
-    return {"message": "Document deleted successfully", "document_id": doc_id}
-
-
-@app.post("/api/documents/{doc_id}/grant")
-def grant_permission(doc_id: int, perm: PermissionRequest, current_user: dict = Depends(get_current_user)):
-    with db_connect() as conn:
-        doc = conn.execute(
-            "SELECT id, owner_id FROM documents WHERE id = ?", (doc_id,)
-        ).fetchone()
-        if not doc:
-            raise HTTPException(status_code=404, detail="Document not found")
-        if current_user["role"] != "admin" and doc[1] != current_user["id"]:
-            log_audit(current_user["id"], "GRANT_DENIED", f"Denied grant attempt for document id={doc_id}")
-            raise HTTPException(status_code=403, detail="Only owner or admin can grant permissions")
-
-        target_user = conn.execute(
-            "SELECT id FROM users WHERE username = ?", (perm.username.strip(),)
-        ).fetchone()
-        if not target_user:
             raise HTTPException(status_code=404, detail="Target user not found")
-        target_user_id = target_user[0]
-        conn.execute(
-            """INSERT INTO permissions (document_id, user_id, access_type)
-               VALUES (?, ?, ?)
-               ON CONFLICT(document_id, user_id)
-               DO UPDATE SET access_type = excluded.access_type""",
-            (doc_id, target_user_id, perm.access_type)
+
+        if target["id"] == document["owner_id"]:
+            raise HTTPException(
+                status_code=400,
+                detail="The owner already has full access"
+            )
+
+        conn.execute("""
+            INSERT INTO permissions (document_id, user_id, access_type)
+            VALUES (?, ?, ?)
+            ON CONFLICT(document_id, user_id)
+            DO UPDATE SET access_type = excluded.access_type
+        """, (document_id, target["id"], request.access_type))
+
+    log_action(
+        user["username"],
+        "GRANT",
+        document_id,
+        f"user={request.username}; access={request.access_type}"
+    )
+
+    return {"message": f"{request.access_type} permission granted"}
+
+
+# --------------------------------------------------
+# REVOKE PERMISSION
+# --------------------------------------------------
+
+@app.post("/api/documents/{document_id}/revoke")
+def revoke_permission(
+    document_id: int,
+    request: GrantPermissionRequest,
+    authorization: Optional[str] = Header(default=None)
+):
+    username = request.username.strip()
+    user = get_current_user(authorization)
+
+    try:
+        document = get_document(document_id)
+    except HTTPException:
+        log_action(
+            user["username"],
+            "REVOKE_DENIED",
+            document_id,
+            "Document not found"
         )
-        conn.commit()
+        raise
 
-    log_audit(current_user["id"], "GRANT_PERMISSION",
-              f"Granted {perm.access_type} access for document id={doc_id} to {perm.username}")
-    return {"message": f"{perm.access_type.title()} access granted to {perm.username}."}
+    if not can_manage_permissions(user, document):
+        log_action(
+            user["username"],
+            "REVOKE_DENIED",
+            document_id,
+            "Not admin or document owner"
+        )
+        raise HTTPException(
+            status_code=403,
+            detail="Only the document owner or admin can revoke access"
+        )
 
-
-@app.post("/api/documents/{doc_id}/revoke")
-def revoke_permission(doc_id: int, perm: PermissionRequest, current_user: dict = Depends(get_current_user)):
-    with db_connect() as conn:
-        doc = conn.execute(
-            "SELECT id, owner_id FROM documents WHERE id = ?", (doc_id,)
+    with get_db() as conn:
+        target = conn.execute(
+            "SELECT id FROM users WHERE username = ?",
+            (username,)
         ).fetchone()
-        if not doc:
-            raise HTTPException(status_code=404, detail="Document not found")
-        if current_user["role"] != "admin" and doc[1] != current_user["id"]:
-            log_audit(current_user["id"], "REVOKE_DENIED", f"Denied revoke attempt for document id={doc_id}")
-            raise HTTPException(status_code=403, detail="Only owner or admin can revoke permissions")
 
-        target_user = conn.execute(
-            "SELECT id FROM users WHERE username = ?", (perm.username.strip(),)
-        ).fetchone()
-        if not target_user:
+        if not target:
             raise HTTPException(status_code=404, detail="Target user not found")
-        cursor = conn.execute(
-            "DELETE FROM permissions WHERE document_id = ? AND user_id = ?",
-            (doc_id, target_user[0])
+
+        cursor = conn.execute("""
+            DELETE FROM permissions
+            WHERE document_id = ? AND user_id = ?
+        """, (document_id, target["id"]))
+
+    log_action(
+        user["username"],
+        "REVOKE",
+        document_id,
+        f"user={username}"
+    )
+
+    return {
+        "message": (
+            "Permission revoked"
+            if cursor.rowcount
+            else "No permission existed for that user"
+        ),
+        "permission_removed": cursor.rowcount > 0
+    }
+
+
+# --------------------------------------------------
+# LIST PERMISSIONS
+# --------------------------------------------------
+
+@app.get("/api/documents/{document_id}/permissions")
+def list_permissions(
+    document_id: int,
+    authorization: Optional[str] = Header(default=None)
+):
+    user = get_current_user(authorization)
+    document = get_document(document_id)
+
+    if not can_manage_permissions(user, document):
+        log_action(user["username"], "PERMISSIONS_DENIED", document_id)
+        raise HTTPException(
+            status_code=403,
+            detail="Only the document owner or admin can view permissions"
         )
-        conn.commit()
-        removed = cursor.rowcount
 
-    log_audit(current_user["id"], "REVOKE_PERMISSION",
-              f"Revoked access for document id={doc_id} from {perm.username}")
-    return {"message": f"Access revoked from {perm.username}.", "permission_removed": removed > 0}
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT u.username, p.access_type
+            FROM permissions p
+            JOIN users u ON u.id = p.user_id
+            WHERE p.document_id = ?
+            ORDER BY u.username
+        """, (document_id,)).fetchall()
 
+    return {
+        "document_id": document_id,
+        "permissions": [
+            {"username": row["username"], "access_type": row["access_type"]}
+            for row in rows
+        ]
+    }
+
+
+# --------------------------------------------------
+# AUDIT LOGS - ADMIN ONLY
+# --------------------------------------------------
 
 @app.get("/api/audit-logs")
-def get_audit_logs(current_user: dict = Depends(get_current_user)):
-    if current_user["role"] != "admin":
-        log_audit(current_user["id"], "AUDIT_LOGS_DENIED", "Non-admin attempted to view audit logs")
-        raise HTTPException(status_code=403, detail="Access denied. Admins only.")
+def audit_logs(
+    limit: int = Query(default=100, ge=1, le=500),
+    authorization: Optional[str] = Header(default=None)
+):
+    user = get_current_user(authorization)
+    require_admin(user)
 
-    with db_connect() as conn:
-        logs = conn.execute(
-            "SELECT id, user_id, action, details, timestamp, entry_hash FROM audit_logs ORDER BY timestamp DESC, id DESC"
-        ).fetchall()
-    return {"audit_logs": logs}
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT id, username, action, document_id, details,
+                   timestamp, previous_hash, entry_hash
+            FROM audit_logs
+            ORDER BY id DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+
+    return {"audit_logs": [dict(row) for row in rows]}
 
 
 @app.get("/api/audit-logs/verify")
-def verify_audit_logs(current_user: dict = Depends(get_current_user)):
-    if current_user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="Access denied. Admins only.")
+def verify_audit_logs(
+    authorization: Optional[str] = Header(default=None)
+):
+    user = get_current_user(authorization)
+    require_admin(user)
 
-    with db_connect() as conn:
-        rows = conn.execute(
-            "SELECT id, user_id, action, details, timestamp, entry_hash FROM audit_logs ORDER BY id ASC"
-        ).fetchall()
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT id, username, action, document_id, details,
+                   timestamp, previous_hash, entry_hash
+            FROM audit_logs ORDER BY id ASC
+        """).fetchall()
 
-    previous_hash = "GENESIS"
+    expected_previous = "GENESIS"
+
     for row in rows:
-        base_row = (row[0], row[1], row[2], row[3], row[4])
-        expected = calculate_audit_hash(previous_hash, base_row)
-        if not row[5] or not hmac.compare_digest(row[5], expected):
-            return {"valid": False, "failed_entry_id": row[0]}
-        previous_hash = row[5]
+        expected_hash = audit_hash(
+            expected_previous,
+            row["username"],
+            row["action"],
+            row["document_id"],
+            row["details"],
+            row["timestamp"]
+        )
 
-    return {"valid": True, "entries_checked": len(rows)}
+        if (
+            row["previous_hash"] != expected_previous
+            or not hmac.compare_digest(row["entry_hash"], expected_hash)
+        ):
+            return {
+                "valid": False,
+                "tampered_entry_id": row["id"],
+                "message": "Audit chain verification failed"
+            }
+
+        expected_previous = row["entry_hash"]
+
+    return {
+        "valid": True,
+        "entries_checked": len(rows),
+        "message": "Audit chain is valid"
+    }
+
+
+# --------------------------------------------------
+# ADMIN: CREATE AN ADMIN ACCOUNT
+# --------------------------------------------------
+
+@app.post("/api/admin/create")
+def create_admin(
+    request: LoginRequest,
+    authorization: Optional[str] = Header(default=None)
+):
+    user = get_current_user(authorization)
+    require_admin(user)
+
+    username = request.username.strip()
+
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{3,50}", username):
+        raise HTTPException(status_code=400, detail="Invalid username")
+
+    if len(request.password) < 12:
+        raise HTTPException(
+            status_code=400,
+            detail="Admin password must be at least 12 characters"
+        )
+
+    try:
+        with get_db() as conn:
+            conn.execute("""
+                INSERT INTO users (username, password_hash, role, created_at)
+                VALUES (?, ?, 'admin', ?)
+            """, (
+                username,
+                pwd_context.hash(request.password),
+                datetime.now(timezone.utc).isoformat()
+            ))
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="Username already exists")
+
+    log_action(
+        user["username"],
+        "CREATE_ADMIN",
+        details=f"Created admin {username}"
+    )
+
+    return {"message": "Admin account created"}

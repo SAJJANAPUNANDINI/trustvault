@@ -1,4 +1,3 @@
-
 import os
 import uuid
 from datetime import date
@@ -30,7 +29,7 @@ def test_search_documents_by_date():
 
     login = client.post(
         "/api/login",
-        data={
+        json={
             "username": username,
             "password": "TestPass123!"
         }
@@ -43,7 +42,7 @@ def test_search_documents_by_date():
     }
 
     upload = client.post(
-        "/api/upload",
+        "/api/documents/upload",
         headers=headers,
         data={
             "title": f"DateReport_{unique}",

@@ -1,4 +1,3 @@
-
 import os
 import uuid
 
@@ -26,7 +25,7 @@ def create_user(username, role):
 
     login = client.post(
         "/api/login",
-        data={
+        json={
             "username": username,
             "password": "TestPass123!"
         }
@@ -50,4 +49,4 @@ def test_audit_log_access_control():
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Access denied. Admins only."
+    assert response.json()["detail"] == "Admin access required"

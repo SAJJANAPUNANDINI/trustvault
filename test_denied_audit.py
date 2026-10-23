@@ -1,4 +1,3 @@
-
 import os
 import uuid
 
@@ -8,7 +7,7 @@ os.environ.setdefault(
 )
 
 from fastapi.testclient import TestClient
-from main import app, db_connect
+from main import app, get_db
 
 client = TestClient(app)
 
@@ -26,7 +25,7 @@ def register_and_login(username, role):
 
     login = client.post(
         "/api/login",
-        data={
+        json={
             "username": username,
             "password": "TestPass123!"
         }
@@ -50,7 +49,7 @@ def test_denied_download_is_recorded_in_audit_log():
     )
 
     upload = client.post(
-        "/api/upload",
+        "/api/documents/upload",
         headers=owner_headers,
         data={
             "title": f"Private_{unique}",
@@ -75,7 +74,7 @@ def test_denied_download_is_recorded_in_audit_log():
     assert denied.status_code == 403
 
     # Verify the refused attempt was saved in the database.
-    with db_connect() as conn:
+    with get_db() as conn:
         rows = conn.execute(
             """
             SELECT action, details

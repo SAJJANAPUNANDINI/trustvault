@@ -1,4 +1,3 @@
-
 import os
 import uuid
 
@@ -26,7 +25,7 @@ def register_and_login(username, role):
 
     login = client.post(
         "/api/login",
-        data={
+        json={
             "username": username,
             "password": "TestPass123!"
         }
@@ -44,7 +43,7 @@ def test_viewer_cannot_upload():
     headers = register_and_login(username, "viewer")
 
     response = client.post(
-        "/api/upload",
+        "/api/documents/upload",
         headers=headers,
         data={
             "title": "Test Document",
@@ -67,7 +66,7 @@ def test_invalid_file_extension_is_rejected():
     headers = register_and_login(username, "owner")
 
     response = client.post(
-        "/api/upload",
+        "/api/documents/upload",
         headers=headers,
         data={
             "title": "Invalid File",
@@ -105,7 +104,7 @@ def test_owner_can_upload_valid_file():
     headers = register_and_login(username, "owner")
 
     response = client.post(
-        "/api/upload",
+        "/api/documents/upload",
         headers=headers,
         data={
             "title": "Valid Test Document",
