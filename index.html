@@ -177,6 +177,8 @@ body{padding:12px;align-items:flex-start}
     <div class="field">
         <label for="documentSearch">Search documents</label>
         <input type="search" id="documentSearch" placeholder="Search title, file, category or owner" oninput="filterDocuments()">
+        <label for="dateSearch">Search by upload date</label>
+        <input type="date" id="dateSearch" onchange="filterDocuments()">
         <p class="muted" id="searchStatus"></p>
     </div>
     <button class="secondary-btn" type="button" onclick="fetchDocuments()">Refresh Documents</button>
@@ -336,7 +338,7 @@ function logout() {
     document.getElementById("docsSection").style.display = "none";
     document.getElementById("docList").replaceChildren();
     document.getElementById("documentSearch").value = "";
-
+    document.getElementById("dateSearch").value = "";
     document.getElementById("loginForm").reset();
     document.getElementById("registerForm").reset();
     document.getElementById("uploadForm").reset();
@@ -455,15 +457,22 @@ function renderDocuments() {
     list.replaceChildren();
 
     const query = document.getElementById("documentSearch").value.trim().toLowerCase();
-    const filtered = allDocuments.filter(doc =>
-        [doc.title, doc.filename, doc.category, doc.ownerName]
-            .join(" ").toLowerCase().includes(query)
-    );
-
-    document.getElementById("searchStatus").textContent = query
-        ? `Showing ${filtered.length} of ${allDocuments.length} documents`
-        : `${allDocuments.length} document(s)`;
-
+    const selectedDate = document.getElementById("dateSearch").value;
+    const filtered = allDocuments.filter(doc => {
+        const matchesText = [
+            doc.title,
+            doc.filename,
+            doc.category,
+            doc.ownerName
+        ].join(" ").toLowerCase().includes(query);
+        const matchesDate = !selectedDate ||
+        String(doc.uploaded || "").startsWith(selectedDate);
+        return matchesText && matchesDate;
+    });
+    document.getElementById("searchStatus").textContent =
+    (query || selectedDate)
+    ? `Showing ${filtered.length} of ${allDocuments.length} documents`
+    : `${allDocuments.length} document(s)`;
     filtered.forEach(doc => {
         const li = document.createElement("li");
         li.className = "doc-item";
@@ -523,7 +532,9 @@ function renderDocuments() {
     if (filtered.length === 0) {
         const li = document.createElement("li");
         li.className = "muted";
-        li.textContent = query ? "No documents match your search." : "No documents available yet.";
+        li.textContent = (query || selectedDate)
+        ? "No documents match your search filters."
+        : "No documents available yet.";
         list.appendChild(li);
     }
 }
