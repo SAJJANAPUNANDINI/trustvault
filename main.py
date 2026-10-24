@@ -285,12 +285,20 @@ def safe_storage_path(storage_name):
 # BASIC ENDPOINTS
 # --------------------------------------------------
 
+
 @app.get("/")
 def home():
-    return {
-        "message": "TrustVault API is running",
-        "docs": "/docs"
-    }
+    index_file = BASE_DIR / "index.html"
+    if not index_file.is_file():
+        raise HTTPException(
+            status_code=500,
+            detail="index.html file not found"
+        )
+    return FileResponse(
+        path=str(index_file),
+        media_type="text/html"
+    )
+
 
 
 @app.get("/api/health")
